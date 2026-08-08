@@ -2,17 +2,16 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { User } from '@supabase/supabase-js'
-import { Profile } from '@/lib/types/database'
+import { User as SupabaseUser } from '@supabase/supabase-js'
+import { User } from '@/lib/types/database'
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null)
-  const [profile, setProfile] = useState<Profile | null>(null)
+  const [user, setUser] = useState<SupabaseUser | null>(null)
+  const [profile, setProfile] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const supabase = createClient()
 
   useEffect(() => {
-    // Get initial session
     const getSession = async () => {
       const {
         data: { session },
@@ -21,14 +20,13 @@ export function useAuth() {
       setUser(session?.user ?? null)
 
       if (session?.user) {
-        // Fetch user profile
-        const { data: profileData } = await supabase
-          .from('profiles')
+        const { data } = await supabase
+          .from('users')
           .select('*')
           .eq('id', session.user.id)
           .single()
 
-        setProfile(profileData)
+        setProfile(data)
       }
 
       setLoading(false)
@@ -36,21 +34,19 @@ export function useAuth() {
 
     getSession()
 
-    // Listen for auth changes
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null)
 
       if (session?.user) {
-        // Fetch user profile
-        const { data: profileData } = await supabase
-          .from('profiles')
+        const { data } = await supabase
+          .from('users')
           .select('*')
           .eq('id', session.user.id)
           .single()
 
-        setProfile(profileData)
+        setProfile(data)
       } else {
         setProfile(null)
       }
@@ -71,11 +67,5 @@ export function useAuth() {
 
   const isAdmin = profile?.role === 'admin'
 
-  return {
-    user,
-    profile,
-    loading,
-    signOut,
-    isAdmin,
-  }
+  return { user, profile, loading, signOut, isAdmin }
 }

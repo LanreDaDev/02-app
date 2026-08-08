@@ -13,30 +13,18 @@ export default function ProtectedRoute({
   children,
   requireAdmin = false,
 }: ProtectedRouteProps) {
-  const { user, profile, loading, isAdmin } = useAuth()
+  const { user, loading, isAdmin } = useAuth()
   const router = useRouter()
 
   useEffect(() => {
     if (!loading) {
       if (!user) {
-        // Not authenticated, redirect to login
         router.push('/login')
       } else if (requireAdmin && !isAdmin) {
-        // Not an admin, redirect to dashboard
         router.push('/dashboard')
-      } else if (user && profile) {
-        // Check if onboarding needs to be completed
-        const isOnboardingRoute = window.location.pathname.startsWith('/onboarding')
-
-        if (!profile.onboarding_completed &&
-            !profile.onboarding_skipped &&
-            !isOnboardingRoute) {
-          // Redirect to onboarding if not completed and not skipped
-          router.push('/onboarding')
-        }
       }
     }
-  }, [user, profile, loading, isAdmin, requireAdmin, router])
+  }, [user, loading, isAdmin, requireAdmin, router])
 
   // Show loading state
   if (loading) {

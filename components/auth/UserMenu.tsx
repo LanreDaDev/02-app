@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/hooks/useAuth'
-import { LogOut, User, Settings, CreditCard } from 'lucide-react'
+import { LogOut, User, Settings, CreditCard, Film, FolderPlus } from 'lucide-react'
 
 export default function UserMenu() {
   const [isOpen, setIsOpen] = useState(false)
@@ -30,9 +30,9 @@ export default function UserMenu() {
 
   if (!user) return null
 
-  const initials = profile?.full_name
+  const initials = profile?.name
     ?.split(' ')
-    .map((n) => n[0])
+    .map((n: string) => n[0])
     .join('')
     .toUpperCase() || user.email?.[0].toUpperCase() || 'U'
 
@@ -65,20 +65,7 @@ export default function UserMenu() {
           e.currentTarget.style.borderColor = '#E8E0D4'
         }}
       >
-        {profile?.avatar_url ? (
-          <img
-            src={profile.avatar_url}
-            alt={profile?.full_name || 'User'}
-            style={{
-              width: '100%',
-              height: '100%',
-              borderRadius: '50%',
-              objectFit: 'cover'
-            }}
-          />
-        ) : (
-          initials
-        )}
+        {initials}
       </button>
 
       {/* Dropdown Menu */}
@@ -98,7 +85,7 @@ export default function UserMenu() {
           {/* User Info */}
           <div style={{ padding: '16px', borderBottom: '1px solid #E8E0D4' }}>
             <div style={{ fontSize: '14px', fontWeight: 600, color: '#141414', marginBottom: '4px' }}>
-              {profile?.full_name || user.email || 'User'}
+              {profile?.name || user.email || 'User'}
             </div>
             <div style={{ fontSize: '12px', color: '#9C9088' }}>{user.email}</div>
             {profile?.role === 'admin' && (
@@ -119,6 +106,96 @@ export default function UserMenu() {
 
           {/* Menu Items */}
           <div style={{ padding: '8px 0' }}>
+            <button
+              onClick={() => {
+                router.push('/dashboard/projects/new')
+                setIsOpen(false)
+              }}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 16px',
+                background: 'transparent',
+                border: 'none',
+                fontSize: '14px',
+                color: '#141414',
+                cursor: 'pointer',
+                transition: 'background 0.2s',
+                textAlign: 'left'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = '#F8F6F2'
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              <FolderPlus size={16} />
+              New Project
+            </button>
+
+            <button
+              onClick={() => {
+                router.push('/dashboard/projects')
+                setIsOpen(false)
+              }}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 16px',
+                background: 'transparent',
+                border: 'none',
+                fontSize: '14px',
+                color: '#141414',
+                cursor: 'pointer',
+                transition: 'background 0.2s',
+                textAlign: 'left'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = '#F8F6F2'
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              <Film size={16} />
+              Projects
+            </button>
+
+            <button
+              onClick={() => {
+                router.push('/dashboard/tokens')
+                setIsOpen(false)
+              }}
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '12px',
+                padding: '12px 16px',
+                background: 'transparent',
+                border: 'none',
+                fontSize: '14px',
+                color: '#141414',
+                cursor: 'pointer',
+                transition: 'background 0.2s',
+                textAlign: 'left'
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.background = '#F8F6F2'
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.background = 'transparent'
+              }}
+            >
+              <CreditCard size={16} />
+              Tokens
+            </button>
+
             <button
               onClick={() => {
                 router.push('/dashboard/settings')
@@ -147,36 +224,6 @@ export default function UserMenu() {
             >
               <Settings size={16} />
               Settings
-            </button>
-
-            <button
-              onClick={() => {
-                router.push('/dashboard/billing')
-                setIsOpen(false)
-              }}
-              style={{
-                width: '100%',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '12px',
-                padding: '12px 16px',
-                background: 'transparent',
-                border: 'none',
-                fontSize: '14px',
-                color: '#141414',
-                cursor: 'pointer',
-                transition: 'background 0.2s',
-                textAlign: 'left'
-              }}
-              onMouseOver={(e) => {
-                e.currentTarget.style.background = '#F8F6F2'
-              }}
-              onMouseOut={(e) => {
-                e.currentTarget.style.background = 'transparent'
-              }}
-            >
-              <CreditCard size={16} />
-              Billing
             </button>
           </div>
 

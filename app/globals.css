@@ -74,8 +74,14 @@
 }
 
 @theme inline {
-    --font-serif: var(--font-serif);
-    --font-heading: var(--font-heading);
+    /* layout.tsx loads Outfit as --font-outfit and Playfair as --font-playfair.
+       These previously pointed at themselves (--font-serif: var(--font-serif)),
+       which resolves to nothing — so the whole app fell back to the browser's
+       default serif and neither loaded font was ever used. */
+    --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+    --font-serif: var(--font-playfair), ui-serif, Georgia, serif;
+    --font-heading: var(--font-playfair), ui-serif, Georgia, serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -123,8 +129,10 @@
   body {
     @apply bg-background text-foreground;
     }
+  /* Outfit for UI. Playfair is a display face — apply it to headings via
+     `font-serif`, not to body copy. */
   html {
-    @apply font-serif;
+    @apply font-sans;
     }
 }
 
@@ -135,4 +143,209 @@
   to {
     transform: rotate(360deg);
   }
+}
+/* ============================================================================
+   Dashboard surface aliases
+   ----------------------------------------------------------------------------
+   The project/timeline screens were written against a token set (--hi, --raised,
+   .cs-*) whose stylesheet was never added to this repo, so every one of those
+   references resolved to nothing and the screens rendered unstyled.
+
+   These map the legacy names onto Olade's real shadcn palette. No new colors are
+   introduced — everything below resolves to an existing token. Migrate markup to
+   Tailwind classes over time and delete this block.
+   ============================================================================ */
+
+:root {
+    /* Status semantics shadcn doesn't ship. */
+    --success: oklch(0.62 0.15 150);
+    --warning: oklch(0.75 0.14 75);
+}
+
+.dark {
+    --success: oklch(0.7 0.15 152);
+    --warning: oklch(0.8 0.14 78);
+}
+
+:root,
+.dark {
+    --base: var(--background);
+    --stage: var(--muted);
+    --raised: var(--card);
+    --line: var(--border);
+    --line-strong: color-mix(in oklch, var(--border) 55%, var(--foreground));
+    --tx: var(--foreground);
+    --lo: var(--muted-foreground);
+    --faint: color-mix(in oklch, var(--muted-foreground) 60%, transparent);
+    --hi: var(--primary);
+    --good: var(--success);
+    --bad: var(--destructive);
+    --p-gold: var(--warning);
+    --p-cyan: var(--primary);
+}
+
+@layer components {
+    .cs-mono {
+        font-family: var(--font-mono);
+        font-variant-numeric: tabular-nums;
+    }
+
+    .cs-serif {
+        font-family: var(--font-serif);
+    }
+
+    .cs-panel,
+    .cs-raised {
+        background: var(--card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+    }
+
+    .cs-btn-solid {
+        background: var(--primary);
+        color: var(--primary-foreground);
+        border: 1px solid transparent;
+        font-weight: 500;
+        cursor: pointer;
+        transition: opacity .15s ease, transform .15s ease;
+    }
+
+    .cs-btn-ghost {
+        background: var(--card);
+        color: var(--foreground);
+        border: 1px solid var(--border);
+        font-weight: 500;
+        cursor: pointer;
+        transition: background-color .15s ease, transform .15s ease;
+    }
+
+    .cs-btn-solid:hover:not(:disabled) { opacity: .9; transform: translateY(-1px); }
+    .cs-btn-ghost:hover:not(:disabled) { background: var(--muted); transform: translateY(-1px); }
+    .cs-btn-solid:disabled,
+    .cs-btn-ghost:disabled { opacity: .5; cursor: not-allowed; }
+
+    .cs-icon-btn {
+        display: grid;
+        place-items: center;
+        padding: 8px;
+        border-radius: calc(var(--radius) * .8);
+        background: transparent;
+        color: var(--muted-foreground);
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: background-color .15s ease, color .15s ease;
+    }
+
+    .cs-icon-btn:hover { background: var(--muted); color: var(--foreground); }
+
+    .cs-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--faint);
+        flex-shrink: 0;
+    }
+
+    /* Running states breathe rather than spin. */
+    .cs-dot.active {
+        background: var(--primary);
+        animation: cs-breathe 1.7s ease-in-out infinite;
+    }
+
+    .cs-breathe { animation: cs-breathe 1.7s ease-in-out infinite; }
+
+    .cs-clip-card {
+        display: grid;
+        place-items: center;
+        border-radius: calc(var(--radius) * .6);
+        border: 1px solid var(--border);
+        background: var(--muted);
+        cursor: pointer;
+        flex-shrink: 0;
+        transition: border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .cs-clip-badge {
+        position: absolute;
+        font-size: 9px;
+        line-height: 1;
+        padding: 2px 3px;
+        border-radius: 3px;
+        background: color-mix(in oklch, var(--background) 70%, transparent);
+        color: var(--muted-foreground);
+    }
+
+    .cs-modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: color-mix(in oklch, black 55%, transparent);
+        backdrop-filter: blur(3px);
+        display: grid;
+        place-items: center;
+        z-index: 50;
+    }
+
+    /* Aspect-correct skeleton with a shimmer sweeping across it. */
+    .cs-shimmer-box {
+        position: relative;
+        overflow: hidden;
+        background: var(--muted);
+        border-radius: calc(var(--radius) * .6);
+    }
+
+    .cs-shimmer-box::after,
+    .cs-scan::after,
+    .cs-scan-sweep::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+            90deg,
+            transparent,
+            color-mix(in oklch, var(--foreground) 8%, transparent),
+            transparent
+        );
+        transform: translateX(-100%);
+        animation: cs-sweep 1.8s ease-in-out infinite;
+        pointer-events: none;
+    }
+
+    .cs-scan,
+    .cs-scan-sweep { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+
+    /* Arrival is a reveal, not a pop. */
+    .cs-reveal,
+    .cs-reveal-el { animation: cs-reveal .45s cubic-bezier(.2, .7, .3, 1) both; }
+    .cs-rise { animation: cs-rise .35s cubic-bezier(.2, .7, .3, 1) both; }
+}
+
+@keyframes cs-breathe {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 40%, transparent); }
+    50% { opacity: .65; box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 0%, transparent); }
+}
+
+@keyframes cs-sweep {
+    to { transform: translateX(100%); }
+}
+
+@keyframes cs-reveal {
+    from { opacity: 0; transform: scale(.97); filter: blur(4px); }
+    to { opacity: 1; transform: none; filter: none; }
+}
+
+@keyframes cs-rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cs-dot.active,
+    .cs-breathe,
+    .cs-shimmer-box::after,
+    .cs-scan::after,
+    .cs-scan-sweep::after,
+    .cs-reveal,
+    .cs-reveal-el,
+    .cs-rise { animation: none; }
 }

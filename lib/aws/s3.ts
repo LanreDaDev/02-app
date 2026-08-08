@@ -16,7 +16,7 @@ const s3Client = new S3Client({
   },
 })
 
-const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME!
+const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || process.env.AWS_S3_BUCKET || ''
 
 // Upload file to S3
 export async function uploadToS3(
@@ -85,16 +85,15 @@ export async function listFiles(prefix: string): Promise<string[]> {
   return response.Contents?.map((item) => item.Key!).filter(Boolean) || []
 }
 
-// Helper to generate S3 key for user uploads
 export function generateS3Key(
   userId: string,
-  orderId: string,
+  projectId: string,
   fileName: string,
-  type: 'photo' | 'video'
+  type: 'photo' | 'clip' | 'video'
 ): string {
   const timestamp = Date.now()
   const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_')
-  return `${type}s/${userId}/${orderId}/${timestamp}-${sanitizedFileName}`
+  return `${type}s/${userId}/${projectId}/${timestamp}-${sanitizedFileName}`
 }
 
 // Helper to get public URL (for public assets)
