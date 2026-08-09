@@ -37,3 +37,10 @@ next-env.d.ts
 
 # bun
 bun.lock
+
+# Filled-in deploy env — never commit
+deploy/production.env
+
+# local env backups
+.env.bak
+.env.local.bak

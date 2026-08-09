@@ -42,6 +42,9 @@ async function ingestToMux(
       body: JSON.stringify({
         input: [{ url }],
         playback_policy: ['public'],
+        // Same rendition the clips use, so muxMp4Url() resolves for the final
+        // video too. `mp4_support: "standard"` is rejected on current accounts.
+        static_renditions: [{ resolution: process.env.MUX_STATIC_RENDITION || 'highest' }],
         // Routes the asset-ready webhook back to this row.
         passthrough: JSON.stringify({ kind: 'video', project_id: projectId, video_id: videoId }),
       }),

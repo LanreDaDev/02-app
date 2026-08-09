@@ -8,13 +8,16 @@ import crypto from 'crypto'
  */
 
 /**
- * Which MP4 rendition to play. Mux's older `mp4_support: "standard"` produces
- * low/medium/high; the newer static-renditions API produces names like
- * 720p/1080p/capped-1080p. Defaulting to `high` for standard support, but this
- * is an env var because it depends on which API your Mux account is on — if
- * clips 404, this is the knob.
+ * Which MP4 rendition to play.
+ *
+ * Must match what the worker asks Mux to produce (MUX_STATIC_RENDITION in the
+ * compute service). The old `mp4_support: "standard"` API — which served
+ * low/medium/high — is rejected outright now:
+ *   "Deprecated 'standard' mp4_support is not allowed on basic assets"
+ * Assets are created with static_renditions [{resolution: "highest"}], served
+ * at /{playback_id}/highest.mp4.
  */
-const MP4_RENDITION = process.env.MUX_MP4_RENDITION || 'high'
+const MP4_RENDITION = process.env.MUX_MP4_RENDITION || 'highest'
 
 /**
  * Progressive MP4. This is what the timeline and the Lambda render use:

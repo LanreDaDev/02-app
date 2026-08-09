@@ -7,13 +7,14 @@ import {
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
-// Initialize S3 client
+// Let the SDK resolve credentials through its default chain: env vars first
+// (which is what Vercel provides), then ~/.aws/credentials, then an instance
+// role. Passing them explicitly meant a missing env var became `undefined` and
+// failed at call time instead of falling back — and it forced every local
+// developer to keep a static key in .env.local. The Python worker resolves the
+// same way, for the same reason.
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION!,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+  region: process.env.AWS_REGION || 'us-east-1',
 })
 
 const BUCKET_NAME = process.env.AWS_S3_BUCKET_NAME || process.env.AWS_S3_BUCKET || ''
