@@ -121,12 +121,18 @@ export async function POST(request: Request) {
         .update({ status: 'failed', error_message: message, updated_at: new Date().toISOString() })
         .eq('id', video.id)
 
+      // `message` is Lambda's own error and stays on the row for debugging.
+      // The notification is written for the user — finalizing costs no tokens,
+      // so retrying is genuinely free and worth saying.
       await supabase.from('notifications').insert({
         user_id: await ownerOf(supabase, video.project_id),
         project_id: video.project_id,
         type: 'job_failed',
-        title: 'Render Failed',
-        message,
+        title: "Couldn't finish your video",
+        message:
+          payload.type === 'timeout'
+            ? 'Your video took too long to render. Press Finalize to try again — this is free.'
+            : 'Your video could not be rendered. Press Finalize to try again — this is free.',
       })
 
       return NextResponse.json({ received: true })

@@ -262,15 +262,35 @@ async function handleFailure(body: JobFailed) {
 
   const userId = (job as unknown as { projects: { user_id: string } }).projects.user_id
 
+  // The raw error stays on the job row for debugging. What the user sees is
+  // written for them — an agent has no use for an HTTP status and response
+  // headers, and pasting a provider's stack trace into a notification bell
+  // reads as broken software rather than a retryable hiccup.
   await supabase.from('notifications').insert({
     user_id: userId,
     project_id: job.project_id,
     type: 'job_failed',
-    title: 'Generation Failed',
-    message:
-      body.error_message ??
-      `Clip ${body.order_index + 1} could not be generated. Contact support for assistance.`,
+    title: body.type === 'image_failed' ? "Couldn't prepare a photo" : "Couldn't generate a clip",
+    message: userFacingFailure(body),
   })
 
   return { ok: true }
+}
+
+/**
+ * A message for the person who uploaded the photos, not for whoever reads logs.
+ *
+ * Retrying a failed clip reuses its original debit — /api/generate resets a
+ * failed clip to 'waiting' rather than creating a new one — so it genuinely
+ * costs nothing, and saying so is the difference between a user retrying and a
+ * user emailing support.
+ */
+function userFacingFailure(body: JobFailed): string {
+  const position = body.order_index + 1
+
+  if (body.type === 'image_failed') {
+    return `Photo ${position} couldn't be prepared for video. Press Generate to try it again — this won't use additional tokens.`
+  }
+
+  return `Clip ${position} didn't finish. Press Generate to retry it — retrying a failed clip doesn't cost additional tokens.`
 }
