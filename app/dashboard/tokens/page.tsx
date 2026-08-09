@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import type { TokenTransaction } from "@/lib/types/database";
 import { Coins, Plus, Loader2 } from "lucide-react";
 
+// The server enforces this too — hiding the buttons is a courtesy, not a control.
+const PURCHASES_ENABLED = process.env.NEXT_PUBLIC_PURCHASES_ENABLED !== "false";
+
 // All prices are USD.
 const PACKS = [
   {
@@ -101,8 +104,24 @@ export default function TokensPage() {
       <h2 style={{ fontSize: "16px", fontWeight: 600, color: "#141414", marginBottom: "12px" }}>
         Buy Tokens
       </h2>
+
+      {!PURCHASES_ENABLED && (
+        <div
+          style={{
+            padding: "14px 16px",
+            borderRadius: "10px",
+            border: "1px solid #E8E0D4",
+            background: "#FAF7F2",
+            color: "#5A5248",
+            fontSize: "14px",
+            marginBottom: "36px",
+          }}
+        >
+          Token purchases are temporarily unavailable. Get in touch if you need more tokens.
+        </div>
+      )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "12px", marginBottom: "36px" }}>
-        {PACKS.map((pack) => (
+        {(PURCHASES_ENABLED ? PACKS : []).map((pack) => (
           <button
             key={pack.priceId}
             onClick={() => handlePurchase(pack.priceId)}

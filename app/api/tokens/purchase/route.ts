@@ -12,6 +12,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
+    // Kill switch. Set NEXT_PUBLIC_PURCHASES_ENABLED=false to close the shop —
+    // used while Stripe is still on test keys, since the test card is public and
+    // would otherwise let anyone mint tokens. Enforced here, not just hidden in
+    // the UI, because hiding a button is not a control.
+    if (process.env.NEXT_PUBLIC_PURCHASES_ENABLED === 'false') {
+      return NextResponse.json(
+        { error: 'purchases_disabled', message: 'Token purchases are temporarily unavailable.' },
+        { status: 503 }
+      )
+    }
+
     const { priceId } = await request.json()
 
     if (!priceId) {

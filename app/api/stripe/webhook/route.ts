@@ -31,6 +31,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
     }
 
+    // A test-mode payment must never mint real tokens on a live site. Stripe's
+    // test card (4242…) is public knowledge, so with test keys deployed anyone
+    // with an account could grant themselves ~$30 of model spend at will.
+    //
+    // Checked here rather than only at checkout because this is the step that
+    // actually moves the ledger — it holds whatever else changes.
+    if (!event.livemode && process.env.STRIPE_ALLOW_TEST_MODE !== 'true') {
+      console.warn(
+        `Ignoring test-mode Stripe event ${event.id}: no tokens granted. ` +
+        `Set STRIPE_ALLOW_TEST_MODE=true to allow this deliberately.`
+      )
+      // 200 so Stripe stops retrying — this is a decision, not a failure.
+      return NextResponse.json({ received: true, ignored: 'test_mode' })
+    }
+
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object as any
       const userId = session.metadata?.user_id
