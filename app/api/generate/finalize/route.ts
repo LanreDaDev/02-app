@@ -30,9 +30,17 @@ const REGION = (process.env.REMOTION_AWS_REGION || 'us-east-1') as AwsRegion
  * out makes a render slower but reliable, and it stops one render from starving
  * every other Lambda in the account.
  *
- * Raise this once the account's Lambda concurrency quota is raised.
+ * Default is deliberately tiny because a NEW AWS account is capped at 10
+ * concurrent executions (the standard limit is 1000). Remotion's main function
+ * plus its renderers, with the overlap during handoff, does not fit in 10 at
+ * any useful fan-out — hence 3, leaving the main function and headroom.
+ *
+ * This is a stopgap, not a setting to keep. Request a Lambda concurrency
+ * increase (Service Quotas → Lambda → Concurrent executions, quota L-B99A9384)
+ * and then raise this to 20+; renders get several times faster and nothing else
+ * needs to change.
  */
-const MAX_LAMBDAS = parseInt(process.env.REMOTION_MAX_LAMBDAS || '6', 10)
+const MAX_LAMBDAS = parseInt(process.env.REMOTION_MAX_LAMBDAS || '3', 10)
 
 /** Remotion requires at least 4 frames per invocation. */
 const MIN_FRAMES_PER_LAMBDA = 4
