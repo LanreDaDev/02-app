@@ -21,6 +21,26 @@ import type { StoredComposition } from '@/app/api/projects/[id]/composition/rout
 
 const REGION = (process.env.REMOTION_AWS_REGION || 'us-east-1') as AwsRegion
 
+/**
+ * How many Lambdas a single render may fan out across.
+ *
+ * Remotion splits a render into concurrent invocations and, left to itself,
+ * picks a number tuned for speed — which trips "AWS Concurrency limit reached"
+ * on accounts with the default low concurrent-execution quota. Bounding the fan
+ * out makes a render slower but reliable, and it stops one render from starving
+ * every other Lambda in the account.
+ *
+ * Raise this once the account's Lambda concurrency quota is raised.
+ */
+const MAX_LAMBDAS = parseInt(process.env.REMOTION_MAX_LAMBDAS || '6', 10)
+
+/** Remotion requires at least 4 frames per invocation. */
+const MIN_FRAMES_PER_LAMBDA = 4
+
+function framesPerLambdaFor(durationInFrames: number): number {
+  return Math.max(MIN_FRAMES_PER_LAMBDA, Math.ceil(durationInFrames / MAX_LAMBDAS))
+}
+
 function serviceClient() {
   return createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -176,6 +196,9 @@ export async function POST(request: Request) {
         },
         codec: 'h264',
         imageFormat: 'jpeg',
+        // Bounded fan-out — see MAX_LAMBDAS. Without this Remotion picks a split
+        // tuned for speed and exceeds the account's concurrency quota.
+        framesPerLambda: framesPerLambdaFor(durationInFrames),
         // 1080p only — no 4K, no upscale.
         privacy: 'public',
         downloadBehavior: {
