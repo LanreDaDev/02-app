@@ -9,6 +9,8 @@ export interface TimelineClipProps {
    * beat clip 1 — so arrival order is not timeline order.
    */
   orderIndex: number
+  /** The slot this take belongs to — what a regenerate actually targets. */
+  slotId?: string
   thumbnail?: string | null
 }
 

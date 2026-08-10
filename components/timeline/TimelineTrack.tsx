@@ -196,7 +196,9 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
                 }}
                 onTrim={(inF, outF) => setTrim(clip.id, inF, outF)}
                 onReorder={handleReorder}
-                onRegen={onRegen ? () => onRegen(clip.id) : undefined}
+                // The slot, not the take — regenerating asks for another result
+                // for the same clip, not a copy of an existing one.
+                onRegen={onRegen && clip.slotId ? () => onRegen(clip.slotId!) : undefined}
               />
             ))}
           </div>

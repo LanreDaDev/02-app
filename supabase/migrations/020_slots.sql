@@ -140,13 +140,12 @@ CREATE INDEX idx_clip_jobs_slot ON clip_jobs (slot_id, created_at DESC);
 
 DROP FUNCTION IF EXISTS satisfy_clip_dependencies(UUID, INTEGER);
 
--- image_jobs stays — a reframe is still a tracked, retryable unit of work — but
--- its order index was only ever there to answer "which clips does this release".
-ALTER TABLE image_jobs
-  DROP COLUMN IF EXISTS order_index;
-
-DROP INDEX IF EXISTS idx_image_jobs_project_order;
-CREATE INDEX IF NOT EXISTS idx_image_jobs_photo ON image_jobs (photo_id);
+-- image_jobs goes too. A reframe was a separately tracked job because clips
+-- waited on it; now it happens inside the slot's own task, so the clip's status
+-- already covers it. What a reframe produced is still recorded — that is what
+-- the reframes table is for, including the outcome that tells you whether the
+-- OBVIOUS gate is calibrated.
+DROP TABLE IF EXISTS image_jobs CASCADE;
 
 -- 'waiting' described a clip whose two images had not both landed. Nothing
 -- waits any more. The value stays in the enum (Postgres cannot drop one) but is

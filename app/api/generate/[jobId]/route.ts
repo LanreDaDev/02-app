@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { muxMp4Url, muxThumbnailUrl } from '@/lib/mux'
-import { TOKENS_PER_CLIP } from '@/lib/tokens'
+import { TOKENS_PER_SECOND } from '@/lib/tokens'
 
 /**
  * Generation graph status. Polled every 3s by the editor.
@@ -39,35 +39,44 @@ export async function GET(
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
 
-    const [{ data: imageJobs }, { data: clipJobs }, { count: selectedPhotos }] =
+    const [{ data: slots }, { data: clipJobs }, { count: photoCount }] =
       await Promise.all([
         supabase
-          .from('image_jobs')
-          .select('order_index, status')
+          .from('slots')
+          .select('id, name, kind, position')
           .eq('project_id', projectId)
-          .order('order_index', { ascending: true }),
+          .order('position', { ascending: true }),
         supabase
           .from('clip_jobs')
-          .select('id, order_index, status, mux_playback_id, error_message')
+          .select('id, slot_id, status, mux_playback_id, duration_seconds, error_message, slots!inner(position, name)')
           .eq('project_id', projectId)
-          .eq('is_current', true)
-          .order('order_index', { ascending: true }),
+          .eq('is_current', true),
         supabase
           .from('photos')
           .select('id', { count: 'exact', head: true })
           .eq('project_id', projectId)
-          .eq('selected', true),
+          .eq('source', 'upload'),
       ])
 
-    const images = imageJobs ?? []
-    const clips = clipJobs ?? []
-    const totalClips = Math.max((selectedPhotos ?? 0) - 1, 0)
+    const slotList = slots ?? []
+    // Rail order, so the timeline opens in the order the agent built rather than
+    // in whatever order generations happened to finish.
+    const clips = [...(clipJobs ?? [])].sort(
+      (a, b) =>
+        ((a as unknown as { slots: { position: number } }).slots.position ?? 0) -
+        ((b as unknown as { slots: { position: number } }).slots.position ?? 0)
+    )
+    const totalClips = slotList.filter((s) => s.kind === 'generated').length
 
     // A clip is only PLAYABLE once Mux has given us a playback ID — 'succeeded'
     // alone just means the file reached Mux and is still encoding.
-    const clipPayload = clips.map((c) => ({
+    const clipPayload = clips.map((c, i) => ({
       id: c.id,
-      orderIndex: c.order_index,
+      // Regenerating targets the SLOT, not the take — a take is a result.
+      slotId: c.slot_id,
+      name: (c as unknown as { slots: { name: string } }).slots?.name,
+      orderIndex: i,
+      durationSeconds: c.duration_seconds,
       status: c.status,
       playable: c.status === 'succeeded' && !!c.mux_playback_id,
       muxPlaybackId: c.mux_playback_id,
@@ -78,12 +87,8 @@ export async function GET(
 
     const clipsDone = clips.filter((c) => c.status === 'succeeded').length
     const clipsFailed = clips.filter((c) => c.status === 'failed').length
-    const inFlight = clips.some((c) =>
-      ['waiting', 'queued', 'running'].includes(c.status)
-    )
-    const imagesInFlight = images.some((i) =>
-      ['queued', 'running'].includes(i.status)
-    )
+    const inFlight = clips.some((c) => ['queued', 'running'].includes(c.status))
+    const imagesInFlight = false
 
     let status: 'idle' | 'running' | 'complete' | 'partial' | 'failed'
     if (clips.length === 0) status = 'idle'
@@ -104,11 +109,12 @@ export async function GET(
       projectId,
       status,
       aspectRatio: project.aspect_ratio || '16:9',
-      images: {
-        total: images.length,
-        succeeded: images.filter((i) => i.status === 'succeeded').length,
-        failed: images.filter((i) => i.status === 'failed').length,
+      slots: {
+        total: slotList.length,
+        generated: slotList.filter((s) => s.kind === 'generated').length,
+        stills: slotList.filter((s) => s.kind === 'still').length,
       },
+      photoCount: photoCount ?? 0,
       clips: clipPayload,
       // The saved edit — order and in/out points. Lets a reload restore the
       // user's trims instead of resetting every clip to full length.
@@ -119,7 +125,9 @@ export async function GET(
       // The paywall lands only after clips have started appearing — never before.
       needsTopUp: clipsDone < totalClips && !inFlight && !imagesInFlight,
       balance,
-      affordableClips: Math.floor(balance / TOKENS_PER_CLIP),
+      // How many seconds of video the balance buys — the price is per second,
+      // so "clips" was never the right unit.
+      affordableSeconds: Math.floor(balance / TOKENS_PER_SECOND),
     })
   } catch (error: unknown) {
     console.error('Graph status error:', error)

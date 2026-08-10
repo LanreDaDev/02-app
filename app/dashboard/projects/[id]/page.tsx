@@ -148,15 +148,14 @@ export default function ProjectTimelinePage() {
       setAspectRatio(project.aspect_ratio as "16:9" | "9:16");
     }
 
-    // Resume a generation that was already running when the page was left.
-    // 'waiting' counts: a clip gated on an image that is still reframing is very
-    // much in flight, even though nothing has been dispatched for it yet.
+    // Resume a generation that was running when the page was left. Nothing
+    // 'waits' any more — a slot's reframes happen inside its own task.
     const { data: inFlight } = await supabase
       .from("clip_jobs")
       .select("id")
       .eq("project_id", projectId)
       .eq("is_current", true)
-      .in("status", ["waiting", "queued", "running"])
+      .in("status", ["queued", "running"])
       .limit(1)
       .maybeSingle();
 
@@ -191,6 +190,7 @@ export default function ProjectTimelinePage() {
     const data: {
       clips: {
         id: string;
+        slotId: string;
         orderIndex: number;
         playable: boolean;
         src: string | null;
@@ -263,16 +263,17 @@ export default function ProjectTimelinePage() {
     loadBalance();
   }
 
-  async function handleRegen(clipJobId: string) {
+  // Regenerating targets the SLOT, not the take. A take is a result — asking for
+  // another one is just generating the slot again, which is why there is no
+  // separate regenerate endpoint any more.
+  async function handleRegen(slotId: string) {
     setError(null);
     setGenerating(true);
 
-    // The server owns the idempotency key — a client-supplied one lets a replay
-    // either double-charge or silently no-op depending on how it's generated.
-    const res = await fetch("/api/generate/regen-clip", {
+    const res = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ projectId, clipJobId }),
+      body: JSON.stringify({ slotId }),
     });
 
     const data = await res.json();
@@ -287,10 +288,6 @@ export default function ProjectTimelinePage() {
       setGenerating(false);
       return;
     }
-
-    // The regenerated clip replaces the old one in its slot; drop the superseded
-    // clip from the timeline so the poll can insert the new one in its place.
-    if (data.supersededId) removeClip(data.supersededId);
 
     setActiveJobId(projectId);
     loadBalance();

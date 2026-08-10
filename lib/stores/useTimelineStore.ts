@@ -84,6 +84,7 @@ export function clipFromServer(clip: {
   id: string
   src: string
   orderIndex: number
+  slotId?: string
   durationSec?: number | null
   thumbnail?: string | null
 }): TimelineClipProps {
@@ -95,6 +96,7 @@ export function clipFromServer(clip: {
     id: clip.id,
     src: clip.src,
     orderIndex: clip.orderIndex,
+    slotId: clip.slotId,
     thumbnail: clip.thumbnail ?? null,
     durationInFrames: frames,
     inFrame: 0,

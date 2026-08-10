@@ -167,36 +167,18 @@ export default function NewProjectPage() {
     }
   };
 
-  // Combines the old "confirm" + "generate" clicks into one action: confirm the
-  // sequence, then kick off generation immediately so Timeline opens already in
-  // progress. Timeline still has its own "Generate Clips" button as a fallback
-  // if the generate call below fails for any reason.
+  // Uploading is now the whole of project setup. Photos are a library the editor
+  // draws from; clips are built one at a time in there, each with its own photos
+  // and its own generate. There is nothing to confirm and nothing to kick off,
+  // because no clip exists until the agent makes one.
   const handleCreateVideo = async () => {
-    if (selectionOrder.length < 2) {
-      setError("Add at least 2 photos to continue.");
+    if (photos.length < 1) {
+      setError("Add at least one photo to continue.");
       return;
     }
     setConfirming(true);
     setError(null);
-    try {
-      const confirmRes = await fetch(`/api/projects/${projectId}/confirm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selectedPhotoIds: selectionOrder }),
-      });
-      if (!confirmRes.ok) throw new Error("Failed to confirm");
-
-      await fetch("/api/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId }),
-      }).catch(() => {});
-
-      router.push(`/dashboard/projects/${projectId}`);
-    } catch {
-      setError("Failed to start your video. Please try again.");
-      setConfirming(false);
-    }
+    router.push(`/dashboard/projects/${projectId}`);
   };
 
   const allUploads = Object.values(uploads);

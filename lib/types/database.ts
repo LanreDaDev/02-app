@@ -166,18 +166,6 @@ export interface Slot {
   updated_at: string
 }
 
-export interface ImageJob {
-  id: string
-  project_id: string
-  photo_id: string
-  order_index: number
-  status: GraphJobStatus
-  attempts: number
-  error_message: string | null
-  created_at: string
-  updated_at: string
-}
-
 /** One generated result for a slot. A slot may hold several; one is active. */
 export interface ClipJob {
   id: string
