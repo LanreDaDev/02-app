@@ -209,6 +209,12 @@ export async function POST(request: Request) {
         ? 'Compute service unreachable'
         : `Compute service returned ${dispatch.status}`
 
+      // Nothing was generated, so the reservation has to come back. Tokens
+      // deliberately do not — retry is the mitigation, same as any other
+      // failure — but reserved_usd is the day's best-known spend, and a clip
+      // the box never accepted did not spend anything.
+      await releaseDailySpend(reserve)
+
       await db
         .from('clip_jobs')
         .update({ status: 'failed', error_message: reason })
