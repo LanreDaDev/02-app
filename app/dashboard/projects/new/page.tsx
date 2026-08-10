@@ -101,6 +101,10 @@ export default function NewProjectPage() {
         addPhoto({
           id: file.photoId,
           project_id: projectId!,
+          // Everything uploaded here is an upload. Extracted last-frames are
+          // created by the worker and never pass through this path.
+          source: "upload",
+          derived_from_clip_job_id: null,
           s3_key: file.key,
           s3_url: file.url,
           file_name: file.fileName,

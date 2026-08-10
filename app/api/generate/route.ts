@@ -5,29 +5,20 @@ import {
   debitTokens,
   releaseDailySpend,
   checkUserRateLimit,
-  TOKENS_PER_CLIP,
-  CLIP_USD_ESTIMATE,
+  tokensForDuration,
+  reserveUsdForDuration,
 } from '@/lib/tokens'
 
 /**
- * Start (or resume) generation for a project.
+ * Generate one slot.
  *
- * Creates the whole job graph up front — one image job per photo that still
- * needs reframing, one clip job per clip — then hands the image work to the
- * compute service. Clips start 'waiting' and are dispatched later, as their two
- * images land, by the webhook.
+ * The agent sets a clip up, generates it, looks at it, and moves on. There is no
+ * batch, no derived sequence, and nothing waits on another slot — a slot needs
+ * only its own one or two photos, so the whole generation is a single task.
  *
- * Resume-aware: the server derives the starting clip index from what has already
- * succeeded. The client sends no offset, so a replayed request cannot re-generate
- * clips that are already paid for.
+ * A still never reaches here: it has no model call, costs nothing, and is ready
+ * the moment it has a photo.
  */
-
-type ReadyClip = {
-  clip_job_id: string
-  order_index: number
-  start_still_s3_key: string
-  end_still_s3_key: string
-}
 
 function serviceClient() {
   return createServiceClient(
@@ -47,305 +38,169 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    const { projectId } = await request.json()
-    if (!projectId) {
-      return NextResponse.json({ error: 'projectId required' }, { status: 400 })
+    const { slotId } = await request.json()
+    if (!slotId) {
+      return NextResponse.json({ error: 'slotId required' }, { status: 400 })
     }
 
     const videoServiceUrl = process.env.VIDEO_SERVICE_URL
     if (!videoServiceUrl) {
-      return NextResponse.json({ error: 'Video service not configured' }, { status: 503 })
-    }
-
-    const { data: project } = await supabase
-      .from('projects')
-      .select('id, user_id, aspect_ratio')
-      .eq('id', projectId)
-      .single()
-
-    if (!project || project.user_id !== user.id) {
-      return NextResponse.json({ error: 'Project not found' }, { status: 404 })
-    }
-
-    // ---- Confirm gate -------------------------------------------------------
-    const { data: photos } = await supabase
-      .from('photos')
-      .select('id, s3_key, order_index')
-      .eq('project_id', projectId)
-      .eq('selected', true)
-      .order('order_index', { ascending: true })
-
-    if (!photos || photos.length < 2) {
-      return NextResponse.json(
-        { error: 'At least 2 confirmed photos required.' },
-        { status: 403 }
-      )
-    }
-
-    if (await checkUserRateLimit(user.id)) {
-      return NextResponse.json({ error: 'Rate limit exceeded. Try again later.' }, { status: 429 })
+      return NextResponse.json({ error: 'Compute service not configured' }, { status: 503 })
     }
 
     const db = serviceClient()
 
-    // ---- Where to resume from ----------------------------------------------
-    // Server owns the offset: one past the highest clip that has already
-    // succeeded. Nothing the client sends can move it.
-    const { data: lastDone } = await db
-      .from('clip_jobs')
-      .select('order_index')
-      .eq('project_id', projectId)
-      .eq('status', 'succeeded')
-      .eq('is_current', true)
-      .order('order_index', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    const start = lastDone ? lastDone.order_index + 1 : 0
-    const totalClips = photos.length - 1
-
-    if (start >= totalClips) {
-      return NextResponse.json({ error: 'All clips already generated.' }, { status: 409 })
-    }
-
-    // ---- How many we can afford --------------------------------------------
-    const { data: account } = await db
-      .from('token_accounts')
-      .select('balance_tokens')
-      .eq('user_id', user.id)
+    const { data: slot } = await db
+      .from('slots')
+      .select('*, projects!inner(id, user_id, aspect_ratio)')
+      .eq('id', slotId)
       .single()
 
-    const balance = account?.balance_tokens ?? 0
-    const affordable = Math.floor(balance / TOKENS_PER_CLIP)
-    const end = Math.min(start + affordable, totalClips)
+    if (!slot) {
+      return NextResponse.json({ error: 'Clip not found' }, { status: 404 })
+    }
 
-    if (end <= start) {
+    const project = (slot as unknown as {
+      projects: { id: string; user_id: string; aspect_ratio: string }
+    }).projects
+
+    if (project.user_id !== user.id) {
+      return NextResponse.json({ error: 'Clip not found' }, { status: 404 })
+    }
+
+    if (slot.kind === 'still') {
       return NextResponse.json(
-        { error: 'insufficient_balance', balance, required: TOKENS_PER_CLIP },
+        { error: 'A still doesn’t need generating — it’s ready as soon as it has a photo.' },
+        { status: 400 }
+      )
+    }
+
+    if (!slot.start_photo_id) {
+      return NextResponse.json(
+        { error: 'Choose a photo for this clip first.' },
+        { status: 400 }
+      )
+    }
+
+    // Already running. Returning the existing take rather than starting another
+    // is what stops a double-click costing twice.
+    const { data: inFlight } = await db
+      .from('clip_jobs')
+      .select('id, status')
+      .eq('slot_id', slotId)
+      .in('status', ['queued', 'running'])
+      .maybeSingle()
+
+    if (inFlight) {
+      return NextResponse.json({ takeId: inFlight.id, status: inFlight.status, alreadyRunning: true })
+    }
+
+    if (await checkUserRateLimit(user.id)) {
+      return NextResponse.json({ error: 'Too many clips at once. Try again shortly.' }, { status: 429 })
+    }
+
+    // Resolve the photos this slot needs. The worker reframes whichever lack a
+    // still; a photo already reframed — including one shared with another slot —
+    // is reused, which is why reframes is unique per photo.
+    const photoIds = [slot.start_photo_id, slot.end_photo_id].filter(Boolean) as string[]
+
+    const { data: photos } = await db
+      .from('photos')
+      .select('id, s3_key')
+      .in('id', photoIds)
+
+    if (!photos || photos.length !== photoIds.length) {
+      return NextResponse.json({ error: 'Those photos are no longer available.' }, { status: 409 })
+    }
+
+    const byId = new Map(photos.map((p) => [p.id, p.s3_key]))
+
+    const cost = tokensForDuration(slot.duration_seconds)
+    const reserve = reserveUsdForDuration(slot.duration_seconds)
+
+    // A fresh key per attempt: regenerating is a deliberate purchase, not a
+    // replay. Double-submits are caught by the in-flight check above.
+    const idempotencyKey = `slot:${slotId}:${Date.now()}`
+
+    const debit = await debitTokens(user.id, cost, 'generation', {
+      idempotencyKey,
+      usdEstimate: reserve,
+    })
+
+    if (debit.status === 'insufficient') {
+      return NextResponse.json(
+        { error: 'insufficient_balance', balance: debit.balance, required: cost },
         { status: 402 }
       )
     }
+    if (debit.status === 'ceiling_exceeded') {
+      return NextResponse.json({ error: 'daily_limit_reached' }, { status: 503 })
+    }
 
-    // ---- Image jobs for the stills clips [start..end) need -------------------
-    // Clip i is built from stills i and i+1, so the range needs stills
-    // [start..end] — end-start+1 of them, because each interior still is shared
-    // by two clips and must only ever be generated once.
-    const neededIndexes: number[] = []
-    for (let i = start; i <= end; i++) neededIndexes.push(i)
+    // The new take supersedes the old one, which stays as history and can be
+    // switched back to instantly.
+    await db
+      .from('clip_jobs')
+      .update({ is_current: false, superseded_at: new Date().toISOString() })
+      .eq('slot_id', slotId)
+      .eq('is_current', true)
 
-    const photoByIndex = new Map(photos.map((p) => [p.order_index as number, p]))
+    const params = {
+      start_photo_id: slot.start_photo_id,
+      end_photo_id: slot.end_photo_id,
+      camera_motion: slot.camera_motion,
+      motion_aggression: slot.motion_aggression,
+      duration_seconds: slot.duration_seconds,
+    }
 
-    // A photo that already has a reframe row is done — skip it rather than pay
-    // to reframe it again.
-    const { data: existingReframes } = await db
-      .from('reframes')
-      .select('photo_id, s3_key')
-      .eq('project_id', projectId)
-
-    const reframeByPhotoId = new Map(
-      (existingReframes ?? []).map((r) => [r.photo_id as string, r.s3_key as string])
-    )
-
-    const imageJobsToRun: {
-      image_job_id: string
-      photo_s3_key: string
-      order_index: number
-    }[] = []
-
-    const { data: existingImageJobs } = await db
-      .from('image_jobs')
-      .select('id, photo_id, status')
-      .eq('project_id', projectId)
-
-    const imageJobByPhotoId = new Map(
-      (existingImageJobs ?? []).map((j) => [j.photo_id as string, j])
-    )
-
-    for (const idx of neededIndexes) {
-      const photo = photoByIndex.get(idx)
-      if (!photo) continue
-
-      const existing = imageJobByPhotoId.get(photo.id)
-
-      // Never re-enqueue a reframe that is already done or in flight. Blindly
-      // upserting to 'queued' here would let a double-click reset a running job
-      // and pay to reframe the same photo twice.
-      if (existing) {
-        if (existing.status !== 'failed') continue
-
-        await db
-          .from('image_jobs')
-          .update({ status: 'queued', error_message: null })
-          .eq('id', existing.id)
-
-        imageJobsToRun.push({
-          image_job_id: existing.id,
-          photo_s3_key: photo.s3_key,
-          order_index: idx,
-        })
-        continue
-      }
-
-      // A photo with a reframe row but no job row (an older run) is already done.
-      const alreadyReframed = reframeByPhotoId.has(photo.id)
-
-      const { data: imageJob } = await db
-        .from('image_jobs')
-        .insert({
-          project_id: projectId,
-          photo_id: photo.id,
-          order_index: idx,
-          status: alreadyReframed ? 'succeeded' : 'queued',
-        })
-        .select('id')
-        .single()
-
-      if (!imageJob || alreadyReframed) continue
-
-      imageJobsToRun.push({
-        image_job_id: imageJob.id,
-        photo_s3_key: photo.s3_key,
-        order_index: idx,
+    const { data: take, error: takeError } = await db
+      .from('clip_jobs')
+      .insert({
+        project_id: project.id,
+        slot_id: slotId,
+        status: 'queued',
+        duration_seconds: slot.duration_seconds,
+        cost_tokens: cost,
+        cost_usd_estimate: reserve,
+        idempotency_key: idempotencyKey,
+        is_current: true,
+        params,
       })
+      .select('id')
+      .single()
+
+    if (takeError || !take) {
+      await releaseDailySpend(reserve)
+      console.error('Create take failed:', takeError)
+      return NextResponse.json({ error: 'Could not start generating' }, { status: 500 })
     }
 
-    // ---- Clip jobs: debit, then create --------------------------------------
-    const created: { clipJobId: string; orderIndex: number }[] = []
-    let stoppedEarly: 'insufficient' | 'ceiling' | null = null
+    await db
+      .from('token_transactions')
+      .update({ job_id: take.id })
+      .eq('idempotency_key', idempotencyKey)
 
-    for (let i = start; i < end; i++) {
-      const idempotencyKey = `clip:${projectId}:${i}`
-
-      const { data: existing } = await db
-        .from('clip_jobs')
-        .select('id, status')
-        .eq('project_id', projectId)
-        .eq('order_index', i)
-        .eq('is_current', true)
-        .maybeSingle()
-
-      // Slot already has a live job — idempotent re-submit, nothing to charge.
-      if (existing && existing.status !== 'failed') {
-        created.push({ clipJobId: existing.id, orderIndex: i })
-        continue
-      }
-
-      // A previously failed clip is retried on the ORIGINAL debit: its
-      // idempotency key is already spent, so inserting a new row would violate
-      // the unique index, and charging again would bill twice for one clip.
-      // (The USD reservation was released when it failed and is not re-made —
-      // the ceiling stays protective for new work, and actual_usd still records
-      // the real spend when this one completes.)
-      if (existing) {
-        await db
-          .from('clip_jobs')
-          .update({ status: 'waiting', error_message: null })
-          .eq('id', existing.id)
-
-        created.push({ clipJobId: existing.id, orderIndex: i })
-        continue
-      }
-
-      // Balance guard + USD reservation, one transaction. Debit BEFORE creating
-      // the job so an unaffordable clip is never enqueued.
-      const debit = await debitTokens(user.id, TOKENS_PER_CLIP, 'generation', {
-        idempotencyKey,
-        usdEstimate: CLIP_USD_ESTIMATE,
-      })
-
-      if (debit.status === 'insufficient') {
-        stoppedEarly = 'insufficient'
-        break
-      }
-      if (debit.status === 'ceiling_exceeded') {
-        stoppedEarly = 'ceiling'
-        break
-      }
-
-      const { data: clipJob, error: clipErr } = await db
-        .from('clip_jobs')
-        .insert({
-          project_id: projectId,
-          order_index: i,
-          dep_start_index: i,
-          dep_end_index: i + 1,
-          status: 'waiting',
-          cost_tokens: TOKENS_PER_CLIP,
-          cost_usd_estimate: CLIP_USD_ESTIMATE,
-          idempotency_key: idempotencyKey,
-        })
-        .select('id')
-        .single()
-
-      if (clipErr || !clipJob) {
-        // Debited but no job to show for it: give the USD headroom back. The
-        // tokens stay debited — the ledger is append-only and has no refund.
-        await releaseDailySpend(CLIP_USD_ESTIMATE)
-        console.error(`Failed to create clip job ${i}:`, clipErr)
-        break
-      }
-
-      if (debit.status === 'ok') {
-        await db
-          .from('token_transactions')
-          .update({ job_id: clipJob.id })
-          .eq('idempotency_key', idempotencyKey)
-      }
-
-      created.push({ clipJobId: clipJob.id, orderIndex: i })
-    }
-
-    if (created.length === 0) {
-      return NextResponse.json(
-        { error: stoppedEarly === 'ceiling' ? 'daily_limit_reached' : 'insufficient_balance', balance },
-        { status: stoppedEarly === 'ceiling' ? 503 : 402 }
-      )
-    }
-
-    // ---- Clips whose stills already exist can go straight out ---------------
-    // Normal first run: none. Resume where every needed still was already
-    // produced: all of them.
-    const readyClips: ReadyClip[] = []
-    for (const idx of neededIndexes) {
-      const { data: released } = await db.rpc('satisfy_clip_dependencies', {
-        p_project_id: projectId,
-        p_order_index: idx,
-      })
-
-      for (const row of (released ?? []) as {
-        clip_job_id: string
-        order_index: number
-        dep_start_index: number
-        dep_end_index: number
-      }[]) {
-        const startKey = reframeByPhotoId.get(photoByIndex.get(row.dep_start_index)?.id ?? '')
-        const endKey = reframeByPhotoId.get(photoByIndex.get(row.dep_end_index)?.id ?? '')
-        if (!startKey || !endKey) continue
-
-        readyClips.push({
-          clip_job_id: row.clip_job_id,
-          order_index: row.order_index,
-          start_still_s3_key: startKey,
-          end_still_s3_key: endKey,
-        })
-      }
-    }
-
-    // ---- Hand off to the compute service ------------------------------------
-    const dispatch = await fetch(`${videoServiceUrl}/generate`, {
+    const dispatch = await fetch(`${videoServiceUrl}/generate-slot`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${process.env.GENERATION_WEBHOOK_SECRET ?? ''}`,
       },
       body: JSON.stringify({
-        project_id: projectId,
+        clip_job_id: take.id,
+        slot_id: slotId,
+        project_id: project.id,
         aspect_ratio: project.aspect_ratio || '16:9',
-        image_jobs: imageJobsToRun,
-        ready_clips: readyClips,
+        duration_seconds: slot.duration_seconds,
+        camera_motion: slot.camera_motion,
+        motion_aggression: slot.motion_aggression,
+        start_photo: { id: slot.start_photo_id, s3_key: byId.get(slot.start_photo_id) },
+        end_photo: slot.end_photo_id
+          ? { id: slot.end_photo_id, s3_key: byId.get(slot.end_photo_id) }
+          : null,
       }),
     }).catch((err) => {
-      console.error('Dispatch to compute service failed:', err)
+      console.error('Dispatch failed:', err)
       return null
     })
 
@@ -355,27 +210,19 @@ export async function POST(request: Request) {
         : `Compute service returned ${dispatch.status}`
 
       await db
-        .from('image_jobs')
-        .update({ status: 'failed', error_message: reason })
-        .in('id', imageJobsToRun.map((j) => j.image_job_id))
-
-      await db
         .from('clip_jobs')
         .update({ status: 'failed', error_message: reason })
-        .in('id', created.map((c) => c.clipJobId))
+        .eq('id', take.id)
 
       return NextResponse.json({ error: reason }, { status: 502 })
     }
 
     return NextResponse.json({
-      projectId,
-      clips: created,
-      imagesQueued: imageJobsToRun.length,
-      totalClips,
-      generated: created.length,
-      remaining: totalClips - (start + created.length),
-      // Drives the top-up prompt — shown only after the user has seen clips land.
-      needsTopUp: start + created.length < totalClips,
+      takeId: take.id,
+      slotId,
+      status: 'queued',
+      costTokens: cost,
+      durationSeconds: slot.duration_seconds,
     })
   } catch (error: unknown) {
     console.error('Generate error:', error)

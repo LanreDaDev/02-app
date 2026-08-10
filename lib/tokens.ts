@@ -1,11 +1,48 @@
 import { createClient } from '@supabase/supabase-js'
 import type { TokenReason } from '@/lib/types/database'
 
-export const TOKENS_PER_CLIP = parseInt(process.env.TOKENS_PER_CLIP || '400', 10)
-export const CLIP_USD_ESTIMATE = parseFloat(process.env.CLIP_USD_ESTIMATE || '2.58')
+/**
+ * Price is per SECOND of generated video. A 4s clip is 400 tokens, 6s is 600,
+ * 8s is 800. The two reframes are a fixed cost either way, so longer clips
+ * amortise them better — the longest option is also the most profitable.
+ */
+export const TOKENS_PER_SECOND = parseInt(process.env.TOKENS_PER_SECOND || '100', 10)
+
+/** Fixed cost of reframing, worst case: two frames, each taking one retry. */
+const REFRAME_USD_WORST = parseFloat(process.env.REFRAME_USD_WORST || '0.96')
+
+/**
+ * Loaded per-second cost. Deliberately above what the model bills — the
+ * difference reserves for infrastructure a clip actually consumes and that
+ * isn't measured yet: the worker box, S3 storage and egress, Mux encoding and
+ * delivery, Lambda renders, hosting. Don't reduce it to the raw model price
+ * without replacing it with a real fully-loaded figure.
+ */
+const VIDEO_USD_PER_SECOND = parseFloat(process.env.VIDEO_USD_PER_SECOND || '0.42')
+
 export const DAILY_SPEND_CEILING_USD = parseFloat(
   process.env.DAILY_SPEND_CEILING_USD || '0'
 )
+
+/** What a clip of this length costs the customer. */
+export function tokensForDuration(seconds: number): number {
+  return Math.round(seconds * TOKENS_PER_SECOND)
+}
+
+/**
+ * What to reserve against the daily ceiling for a clip of this length.
+ *
+ * Worst case, not expected case — the breaker exists so a parallel burst can't
+ * overshoot, and it reads reservations rather than actuals.
+ */
+export function reserveUsdForDuration(seconds: number): number {
+  return +(REFRAME_USD_WORST + seconds * VIDEO_USD_PER_SECOND).toFixed(2)
+}
+
+/** @deprecated Fixed-length pricing. Use tokensForDuration once slots land. */
+export const TOKENS_PER_CLIP = parseInt(process.env.TOKENS_PER_CLIP || '400', 10)
+/** @deprecated Fixed-length reservation. Use reserveUsdForDuration. */
+export const CLIP_USD_ESTIMATE = parseFloat(process.env.CLIP_USD_ESTIMATE || '3.00')
 
 /**
  * Outcome of an atomic ledger call. Mirrors the JSONB returned by the

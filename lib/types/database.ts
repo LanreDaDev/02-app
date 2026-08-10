@@ -11,8 +11,39 @@ export type JobType = 'clip' | 'regen' | 'concat'
 
 export type JobStatus = 'queued' | 'running' | 'succeeded' | 'failed'
 
-/** Generation-graph job state. 'waiting' is clip-only: dependencies unmet. */
+/**
+ * Job state. 'waiting' is vestigial — it belonged to the derived-clip dependency
+ * graph removed in migration 020. Nothing writes it any more.
+ */
 export type GraphJobStatus = 'waiting' | 'queued' | 'running' | 'succeeded' | 'failed'
+
+export type SlotKind = 'still' | 'generated'
+
+export type StillMotion = 'none' | 'zoom_in' | 'zoom_out' | 'pan_left' | 'pan_right'
+
+/** Where a photo came from. Extracted frames are ordinary inputs. */
+export type PhotoSource = 'upload' | 'extracted_frame'
+
+/**
+ * The lengths the model produces. Priced at TOKENS_PER_SECOND, so a longer clip
+ * costs proportionally more — and earns more, since the reframes are fixed.
+ */
+export type ClipDuration = 4 | 6 | 8
+
+/**
+ * Camera presets differ by frame count: with one frame the camera moves within
+ * the shot, with two the endpoints define the travel and the preset describes
+ * how it gets there.
+ */
+export type SingleFrameMotion =
+  | 'push_in' | 'pull_out'
+  | 'pan_left' | 'pan_right'
+  | 'tilt_up' | 'tilt_down'
+  | 'orbit_left' | 'orbit_right'
+
+export type TwoFrameMotion = 'linear' | 'ease' | 'accelerate' | 'hold_then_move'
+
+export type CameraMotion = SingleFrameMotion | TwoFrameMotion
 
 export type VideoResolution = '1080p' | '4k'
 
@@ -69,6 +100,9 @@ export interface Project {
 export interface Photo {
   id: string
   project_id: string
+  source: PhotoSource
+  /** For extracted frames: the take whose final frame this is. */
+  derived_from_clip_job_id: string | null
   s3_key: string
   s3_url: string
   file_name: string
@@ -111,6 +145,27 @@ export interface Clip {
   created_at: string
 }
 
+export interface Slot {
+  id: string
+  project_id: string
+  /** What the agent renamed it to — "Kitchen", not "Clip 3". */
+  name: string
+  kind: SlotKind
+  /** Rail order. Timeline order lives in projects.composition. */
+  position: number
+  start_photo_id: string | null
+  /** Two frames means FFLF; one means the camera moves within a single shot. */
+  end_photo_id: string | null
+  camera_motion: CameraMotion | null
+  motion_aggression: number
+  duration_seconds: ClipDuration
+  /** Stills only. Unbounded — there is no take to trim against. */
+  hold_duration_seconds: number
+  still_motion: StillMotion
+  created_at: string
+  updated_at: string
+}
+
 export interface ImageJob {
   id: string
   project_id: string
@@ -123,12 +178,14 @@ export interface ImageJob {
   updated_at: string
 }
 
+/** One generated result for a slot. A slot may hold several; one is active. */
 export interface ClipJob {
   id: string
   project_id: string
-  order_index: number
-  dep_start_index: number
-  dep_end_index: number
+  slot_id: string
+  duration_seconds: number
+  /** What this take was generated with, so a changed setting can be named. */
+  params: Record<string, unknown> | null
   status: GraphJobStatus
   cost_tokens: number
   cost_usd_estimate: number | null
