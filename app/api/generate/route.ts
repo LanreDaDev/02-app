@@ -115,6 +115,30 @@ export async function POST(request: Request) {
 
     const byId = new Map(photos.map((p) => [p.id, p.s3_key]))
 
+    // The still the worker needs may already exist. Every reframe is recorded
+    // here as it lands, so hand over the key and let the worker download it
+    // instead of paying Gemini to produce the same image twice.
+    //
+    // Without this the reuse path upstream could never fire: it keys off
+    // reframed_s3_key, and nothing populated it. Regenerating a slot — the
+    // central gesture of the authored model — re-bought its stills every take.
+    const { data: stills } = await db
+      .from('reframes')
+      .select('photo_id, s3_key')
+      .in('photo_id', photoIds)
+
+    const stillByPhoto = new Map((stills ?? []).map((r) => [r.photo_id, r.s3_key]))
+
+    // A crop fallback is reused like any other still. It is what the reframe
+    // produced and what the last take was cut from, so re-running it here would
+    // silently charge for a retry nobody asked for and change the slot's look
+    // between takes that were meant to differ only by what the agent altered.
+    const framePayload = (photoId: string) => ({
+      id: photoId,
+      s3_key: byId.get(photoId),
+      reframed_s3_key: stillByPhoto.get(photoId) ?? null,
+    })
+
     const cost = tokensForDuration(slot.duration_seconds)
     const reserve = reserveUsdForDuration(slot.duration_seconds)
 
@@ -194,10 +218,8 @@ export async function POST(request: Request) {
         duration_seconds: slot.duration_seconds,
         camera_motion: slot.camera_motion,
         motion_aggression: slot.motion_aggression,
-        start_photo: { id: slot.start_photo_id, s3_key: byId.get(slot.start_photo_id) },
-        end_photo: slot.end_photo_id
-          ? { id: slot.end_photo_id, s3_key: byId.get(slot.end_photo_id) }
-          : null,
+        start_photo: framePayload(slot.start_photo_id),
+        end_photo: slot.end_photo_id ? framePayload(slot.end_photo_id) : null,
       }),
     }).catch((err) => {
       console.error('Dispatch failed:', err)
