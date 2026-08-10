@@ -1,9 +1,9 @@
 'use client'
 
-import { useState } from 'react'
 import { Film, Image as ImageIcon, Plus, AlertCircle } from 'lucide-react'
 import { useEditorStore } from '@/lib/stores/useEditorStore'
 import { cn } from '@/lib/utils'
+import type { EditorPhoto } from '@/lib/hooks/usePhotos'
 import type { SlotState, SlotWithTakes } from '@/lib/types/database'
 
 /**
@@ -22,6 +22,10 @@ import type { SlotState, SlotWithTakes } from '@/lib/types/database'
 interface SequenceRailProps {
   onAddSlot: () => void | Promise<void>
   adding?: boolean
+  readyCount?: number
+  /** Resolves a slot's frame ids to images. The card's thumbnails are the
+   *  clearest signal of which kind of slot it is, so they matter. */
+  photos?: EditorPhoto[]
 }
 
 const STATE_LABEL: Record<SlotState, string> = {
@@ -41,27 +45,49 @@ const STATE_DOT: Record<SlotState, string> = {
   failed: 'bg-destructive',
 }
 
-export function SequenceRail({ onAddSlot, adding }: SequenceRailProps) {
+export function SequenceRail({
+  onAddSlot,
+  adding,
+  readyCount,
+  photos = [],
+}: SequenceRailProps) {
   const slots = useEditorStore((s) => s.slots)
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId)
   const select = useEditorStore((s) => s.select)
 
+  const photoById = new Map(photos.map((p) => [p.id, p]))
+
   return (
-    <aside className="flex h-full w-[320px] shrink-0 flex-col border-r border-border bg-card">
-      <header className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div>
-          <h2 className="font-serif text-sm text-foreground">Sequence</h2>
-          <p className="font-mono text-[11px] tabular-nums text-muted-foreground">
-            {slots.length} {slots.length === 1 ? 'clip' : 'clips'}
-          </p>
+    <aside className="flex h-full min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card">
+      {/* Add clip is pinned at the top, with the primary action above the list
+          rather than below it — the agent reaches for it before scanning. */}
+      <header className="flex flex-none flex-col gap-2.5 border-b border-border px-3.5 py-3">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-medium text-foreground">Sequence</h2>
+          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+            {readyCount ?? 0}/{slots.length} ready
+          </span>
         </div>
+        <button
+          type="button"
+          onClick={() => void onAddSlot()}
+          disabled={adding}
+          className={cn(
+            'flex w-full items-center justify-center gap-2 rounded-lg border border-border',
+            'bg-muted/60 px-3 py-2 text-[12.5px] text-foreground transition-colors',
+            'hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50'
+          )}
+        >
+          <Plus size={13} />
+          {adding ? 'Adding…' : 'Add clip'}
+        </button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
         {slots.length === 0 ? (
           <EmptyRail />
         ) : (
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col gap-1.5">
             {slots.map((slot, i) => (
               <li key={slot.id}>
                 <SlotCard
@@ -69,41 +95,30 @@ export function SequenceRail({ onAddSlot, adding }: SequenceRailProps) {
                   index={i}
                   selected={slot.id === selectedSlotId}
                   onSelect={() => select(slot.id)}
+                  startPhoto={
+                    slot.start_photo_id ? photoById.get(slot.start_photo_id) : undefined
+                  }
+                  endPhoto={
+                    slot.end_photo_id ? photoById.get(slot.end_photo_id) : undefined
+                  }
                 />
               </li>
             ))}
           </ul>
         )}
       </div>
-
-      <div className="border-t border-border p-3">
-        <button
-          type="button"
-          onClick={() => void onAddSlot()}
-          disabled={adding}
-          className={cn(
-            'flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-border',
-            'px-3 py-2.5 text-sm text-muted-foreground transition-colors',
-            'hover:border-foreground/30 hover:bg-muted hover:text-foreground',
-            'disabled:cursor-not-allowed disabled:opacity-50'
-          )}
-        >
-          <Plus size={14} />
-          {adding ? 'Adding…' : 'Add clip'}
-        </button>
-      </div>
     </aside>
   )
 }
 
 function EmptyRail() {
+  // An invitation to act, not a wall of disabled placeholder cards. The action
+  // itself is already pinned in the header above.
   return (
     <div className="mt-10 px-4 text-center">
-      <Film size={20} className="mx-auto mb-3 text-muted-foreground/50" />
-      <p className="text-sm text-foreground">No clips yet</p>
-      <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-        Add a clip, choose a photo for it, and generate. Build them one at a
-        time — you can look at each before making the next.
+      <p className="text-[15px] text-foreground">Build your sequence</p>
+      <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+        Add a clip, choose one or two photos, and pick how the camera moves.
       </p>
     </div>
   )
@@ -114,21 +129,27 @@ interface SlotCardProps {
   index: number
   selected: boolean
   onSelect: () => void
+  startPhoto?: EditorPhoto
+  endPhoto?: EditorPhoto
 }
 
-function SlotCard({ slot, index, selected, onSelect }: SlotCardProps) {
-  const [imgFailed, setImgFailed] = useState(false)
-
+/**
+ * A card carries no duration and no time axis — that is the timeline's job.
+ * The rail is semantic: which slot, which kind, what state. Two surfaces
+ * answering the same question differently is how they start disagreeing.
+ */
+function SlotCard({
+  slot,
+  index,
+  selected,
+  onSelect,
+  startPhoto,
+  endPhoto,
+}: SlotCardProps) {
   const isStill = slot.kind === 'still'
-  // A still is held for as long as narration needs; a generated clip is only
-  // ever the lengths the model produces.
-  const seconds = isStill ? slot.hold_duration_seconds : slot.duration_seconds
-
-  const playbackId = slot.activeTake?.mux_playback_id
-  const poster =
-    playbackId && !imgFailed
-      ? `https://image.mux.com/${playbackId}/thumbnail.webp?width=160&fit_mode=smartcrop`
-      : null
+  // Two frames means the camera travels between them; one means it moves within
+  // the shot. Showing that on the card is the fastest way to read a sequence.
+  const twoFrames = !isStill && Boolean(slot.end_photo_id)
 
   return (
     <button
@@ -136,53 +157,73 @@ function SlotCard({ slot, index, selected, onSelect }: SlotCardProps) {
       onClick={onSelect}
       aria-current={selected}
       className={cn(
-        'flex w-full items-center gap-3 rounded-lg border p-2 text-left transition-colors',
+        'flex w-full items-center gap-2.5 rounded-lg border p-2 text-left transition-colors',
         selected
           ? 'border-warning bg-warning/10'
           : 'border-border bg-background hover:border-foreground/20 hover:bg-muted'
       )}
     >
-      <div className="relative grid h-12 w-[68px] shrink-0 place-items-center overflow-hidden rounded-md bg-muted">
-        {poster ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={poster}
-            alt=""
-            className="h-full w-full object-cover"
-            onError={() => setImgFailed(true)}
-          />
-        ) : isStill ? (
-          <ImageIcon size={14} className="text-muted-foreground" />
-        ) : (
-          <Film size={14} className="text-muted-foreground" />
+      <span className="w-4 shrink-0 font-mono text-[10px] tabular-nums text-muted-foreground">
+        {String(index + 1).padStart(2, '0')}
+      </span>
+
+      <div className="flex shrink-0 items-center gap-1">
+        <Thumb photo={startPhoto} isStill={isStill} wide={!twoFrames} />
+        {twoFrames && (
+          <span className="font-mono text-[9px] text-muted-foreground">→</span>
         )}
+        {twoFrames && <Thumb photo={endPhoto} isStill={false} wide={false} />}
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
-            {String(index + 1).padStart(2, '0')}
-          </span>
-          <span className="truncate text-[13px] text-foreground">{slot.name}</span>
-        </div>
-
-        <div className="mt-1 flex items-center gap-1.5">
+        <span className="block truncate text-[12.5px] font-medium text-foreground">
+          {slot.name}
+        </span>
+        <span className="mt-1 flex items-center gap-1.5">
           <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', STATE_DOT[slot.state])} />
-          <span className="truncate text-[11px] text-muted-foreground">
-            {slot.state === 'failed' ? (
-              <span className="inline-flex items-center gap-1 text-destructive">
-                <AlertCircle size={10} />
-                {STATE_LABEL.failed}
-              </span>
-            ) : (
-              STATE_LABEL[slot.state]
+          <span
+            className={cn(
+              'truncate text-[11px]',
+              slot.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'
             )}
+          >
+            {slot.state === 'failed' && (
+              <AlertCircle size={10} className="mr-1 inline align-[-1px]" />
+            )}
+            {STATE_LABEL[slot.state]}
           </span>
-          <span className="ml-auto shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-            {seconds}s
-          </span>
-        </div>
+        </span>
       </div>
     </button>
+  )
+}
+
+function Thumb({
+  photo,
+  isStill,
+  wide,
+}: {
+  photo?: EditorPhoto
+  isStill: boolean
+  wide: boolean
+}) {
+  return (
+    <span
+      className={cn(
+        'grid h-[38px] shrink-0 place-items-center overflow-hidden rounded bg-muted',
+        wide ? 'w-[54px]' : 'w-[34px]',
+        // A slot with no photo yet reads as an empty target, not a broken image.
+        !photo && 'border border-dashed border-border'
+      )}
+    >
+      {photo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={photo.s3_url} alt="" className="h-full w-full object-cover" loading="lazy" />
+      ) : isStill ? (
+        <ImageIcon size={12} className="text-muted-foreground" />
+      ) : (
+        <Film size={12} className="text-muted-foreground" />
+      )}
+    </span>
   )
 }

@@ -37,10 +37,13 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
-  // Protected routes - redirect to login if not authenticated
+  // Protected routes - redirect to login if not authenticated.
+  // /editor is the editor shell, which moved out of /dashboard so it could own
+  // the viewport. It carries a project's media and must stay behind auth.
   if (
     !user &&
     (request.nextUrl.pathname.startsWith('/dashboard') ||
+      request.nextUrl.pathname.startsWith('/editor') ||
       request.nextUrl.pathname.startsWith('/admin'))
   ) {
     const url = request.nextUrl.clone()

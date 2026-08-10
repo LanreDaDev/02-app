@@ -79,7 +79,9 @@ function mockSlot(
     kind,
     position: i,
     start_photo_id: opts.state === "draft" ? null : `mock-photo-${i}`,
-    end_photo_id: null,
+    // Every other generated slot travels between two frames, so the card's
+    // one-vs-two thumbnail treatment is visible without clicking anything.
+    end_photo_id: kind === "generated" && i % 2 === 1 ? `mock-photo-${(i + 2) % 6}` : null,
     camera_motion: "push_in",
     motion_aggression: 50,
     duration_seconds: 4,
@@ -149,11 +151,17 @@ export default function TimelinePreviewPage() {
     // Fixed viewport height with the scroll inside each column: the rail has to
     // stay put while the stage scrolls, or it slides away exactly when you want
     // to click the next card.
-    <div className="flex h-screen items-stretch overflow-hidden">
+    // Dark, like the real shell — the harness is worthless if it renders the
+    // components in an environment they never actually live in.
+    <div className="dark flex h-screen items-stretch overflow-hidden bg-background text-foreground">
       {/* The rail shares the one selection with the timeline below: clicking a
           card highlights the matching clip, and clicking a clip highlights the
           card. If those ever disagree, the store grew a second selection. */}
-      <SequenceRail onAddSlot={() => console.log("add slot requested")} />
+      <SequenceRail
+        onAddSlot={() => console.log("add slot requested")}
+        readyCount={5}
+        photos={MOCK_PHOTOS}
+      />
 
       <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
@@ -176,10 +184,13 @@ export default function TimelinePreviewPage() {
 
       <TimelineControls playerRef={playerRef} />
 
-      <TimelineTrack
-        playerRef={playerRef}
-        onRegen={(id) => console.log("regen requested for", id)}
-      />
+      {/* The workbench inverts to light inside the dark shell. */}
+      <div className="light rounded-lg bg-background p-2 text-foreground">
+        <TimelineTrack
+          playerRef={playerRef}
+          onRegen={(id) => console.log("regen requested for", id)}
+        />
+      </div>
 
       <details className="rounded-lg border border-border bg-card p-3 text-sm">
         <summary className="cursor-pointer text-muted-foreground">Composition state</summary>

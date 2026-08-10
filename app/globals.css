@@ -73,6 +73,38 @@
     --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* Dark theatre, light workbench.
+ *
+ * The editor is a dark surface — the listing photography has to be the
+ * brightest thing on screen — but the timeline inside it is inverted back to
+ * light, because it is operated rather than watched: ruler ticks, hairlines and
+ * waveforms stay legible at small sizes where they would muddy against black.
+ *
+ * `.dark` already exists to go one way. This goes the other, so a light region
+ * can sit INSIDE a dark one. Same values as :root; nothing new is invented. */
+.light {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
+    --success: oklch(0.62 0.15 150);
+    --warning: oklch(0.75 0.14 75);
+}
+
 @theme inline {
     /* layout.tsx loads Outfit as --font-outfit and Playfair as --font-playfair.
        These previously pointed at themselves (--font-serif: var(--font-serif)),
