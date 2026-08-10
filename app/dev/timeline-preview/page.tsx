@@ -14,7 +14,10 @@ import { RemotionPlayer, type RemotionPlayerHandle } from "@/components/timeline
 import { TimelineTrack } from "@/components/timeline/TimelineTrack"
 import { TimelineControls } from "@/components/timeline/TimelineControls"
 import { useTimelineStore } from "@/lib/stores/useTimelineStore"
+import { useEditorStore } from "@/lib/stores/useEditorStore"
+import { SequenceRail } from "@/components/editor/SequenceRail"
 import { FPS } from "@/lib/remotion/constants"
+import type { SlotKind, SlotState, SlotWithTakes } from "@/lib/types/database"
 
 /** Inline SVG so nothing depends on the network or a live Mux asset. */
 function swatch(label: string, hue: number) {
@@ -43,6 +46,35 @@ const SAMPLE_SRC = [
 
 const SOURCE_SECONDS = 8
 
+/** A rail card without a database. Only the fields the rail actually reads. */
+function mockSlot(
+  i: number,
+  opts: { state: SlotState; name?: string; seconds?: number; kind?: SlotKind }
+): SlotWithTakes {
+  const kind = opts.kind ?? "generated"
+  return {
+    id: `mock-slot-${i}`,
+    project_id: "mock-project",
+    name: opts.name ?? `Clip ${i + 1}`,
+    kind,
+    position: i,
+    start_photo_id: opts.state === "draft" ? null : `mock-photo-${i}`,
+    end_photo_id: null,
+    camera_motion: "push_in",
+    motion_aggression: 50,
+    duration_seconds: 4,
+    hold_duration_seconds: opts.seconds ?? 3,
+    still_motion: "zoom_in",
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    takes: [],
+    // No playback id, so cards fall back to their icon rather than reaching for
+    // a Mux thumbnail that does not exist. The harness stays offline.
+    activeTake: null,
+    state: opts.state,
+  }
+}
+
 // Deliberately uneven visible durations — proportional widths are the whole point
 // of a timeline, and equal-length clips would hide whether that works. Each sits
 // inside a longer source so there's real headroom to trim out to.
@@ -55,12 +87,18 @@ export default function TimelinePreviewPage() {
   const setClips = useTimelineStore((s) => s.setClips)
   const setAspectRatio = useTimelineStore((s) => s.setAspectRatio)
   const clips = useTimelineStore((s) => s.clips)
+  const setSlots = useEditorStore((s) => s.setSlots)
+  const selectedSlotId = useEditorStore((s) => s.selectedSlotId)
   const [vertical, setVertical] = useState(false)
 
   useEffect(() => {
     setClips(
       DURATIONS.map((sec, i) => ({
-        id: `mock-${i}`,
+        id: `mock-take-${i}`,
+        // A clip is a TAKE and carries the slot it belongs to. Selection is the
+        // slot's, so without this the timeline can't highlight or regenerate —
+        // which is exactly what a harness for this should be exercising.
+        slotId: `mock-slot-${i}`,
         src: SAMPLE_SRC[i % SAMPLE_SRC.length],
         orderIndex: i,
         thumbnail: swatch(`${i + 1}`, 190 + i * 38),
@@ -71,17 +109,38 @@ export default function TimelinePreviewPage() {
     )
   }, [setClips])
 
+  // Mock slots for the rail, one per take plus a still and a draft so the card
+  // states are all visible without generating anything.
+  useEffect(() => {
+    setSlots([
+      ...DURATIONS.map((sec, i) => mockSlot(i, { state: "ready", seconds: sec })),
+      mockSlot(DURATIONS.length, { state: "running", name: "Back garden" }),
+      mockSlot(DURATIONS.length + 1, { state: "draft", name: "Hallway" }),
+      mockSlot(DURATIONS.length + 2, { state: "failed", name: "Loft" }),
+      mockSlot(DURATIONS.length + 3, { state: "ready", name: "Front elevation", kind: "still" }),
+    ])
+  }, [setSlots])
+
   useEffect(() => {
     setAspectRatio(vertical ? "9:16" : "16:9")
   }, [vertical, setAspectRatio])
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 p-6">
+    // Fixed viewport height with the scroll inside each column: the rail has to
+    // stay put while the stage scrolls, or it slides away exactly when you want
+    // to click the next card.
+    <div className="flex h-screen items-stretch overflow-hidden">
+      {/* The rail shares the one selection with the timeline below: clicking a
+          card highlights the matching clip, and clicking a clip highlights the
+          card. If those ever disagree, the store grew a second selection. */}
+      <SequenceRail onAddSlot={() => console.log("add slot requested")} />
+
+      <div className="min-w-0 flex-1 space-y-5 overflow-y-auto p-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-serif text-2xl">Timeline preview</h1>
           <p className="text-sm text-muted-foreground">
-            Mock clips. Dev-only route — not reachable in production.
+            Mock clips and slots. Dev-only route — not reachable in production.
           </p>
         </div>
 
@@ -106,17 +165,22 @@ export default function TimelinePreviewPage() {
         <summary className="cursor-pointer text-muted-foreground">Composition state</summary>
         <pre className="mt-2 overflow-x-auto font-mono text-xs text-muted-foreground">
           {JSON.stringify(
-            clips.map((c) => ({
-              i: c.orderIndex,
-              in: c.inFrame,
-              out: c.outFrame,
-              sec: +((c.outFrame - c.inFrame) / FPS).toFixed(2),
-            })),
+            {
+              selectedSlotId,
+              clips: clips.map((c) => ({
+                i: c.orderIndex,
+                slot: c.slotId,
+                in: c.inFrame,
+                out: c.outFrame,
+                sec: +((c.outFrame - c.inFrame) / FPS).toFixed(2),
+              })),
+            },
             null,
             2
           )}
         </pre>
       </details>
+      </div>
     </div>
   )
 }

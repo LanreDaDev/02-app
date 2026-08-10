@@ -189,6 +189,36 @@ export interface ClipJob {
   updated_at: string
 }
 
+/**
+ * What a slot looks like on the rail.
+ *
+ * Stills have two states and never queue, generate, fail or go stale. Keeping
+ * that distinction in one derived value is what stops a photo from being drawn
+ * with a progress ring.
+ */
+export type SlotState = 'draft' | 'queued' | 'running' | 'ready' | 'failed'
+
+/** The fields of a take the editor reads. The rest stay server-side. */
+export type SlotTake = Pick<
+  ClipJob,
+  | 'id'
+  | 'slot_id'
+  | 'status'
+  | 'mux_playback_id'
+  | 'is_current'
+  | 'params'
+  | 'created_at'
+  | 'error_message'
+>
+
+/** A slot with its takes — the shape GET /api/projects/[id]/slots returns. */
+export interface SlotWithTakes extends Slot {
+  takes: SlotTake[]
+  /** The take currently on the timeline. Switching takes costs nothing. */
+  activeTake: SlotTake | null
+  state: SlotState
+}
+
 export interface Reframe {
   id: string
   project_id: string

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Slot } from '@/lib/types/database'
+import type { SlotWithTakes } from '@/lib/types/database'
 
 /**
  * The editor's authoring state: the slots in a project, and which one is
@@ -23,25 +23,25 @@ import type { Slot } from '@/lib/types/database'
  */
 
 interface EditorState {
-  slots: Slot[]
+  slots: SlotWithTakes[]
 
   /** The one selection. A slot id, never a take id. */
   selectedSlotId: string | null
 
-  setSlots: (slots: Slot[]) => void
+  setSlots: (slots: SlotWithTakes[]) => void
   /** Insert or replace by id, keeping the list in rail order. */
-  upsertSlot: (slot: Slot) => void
+  upsertSlot: (slot: SlotWithTakes) => void
   removeSlot: (id: string) => void
   reorderSlots: (orderedIds: string[]) => void
 
   select: (id: string | null) => void
 
-  selectedSlot: () => Slot | null
+  selectedSlot: () => SlotWithTakes | null
   /** True when this take's slot is the selected one — the only way a clip highlights. */
   isSlotSelected: (slotId: string | null | undefined) => boolean
 }
 
-const byPosition = (a: Slot, b: Slot) => a.position - b.position
+const byPosition = (a: SlotWithTakes, b: SlotWithTakes) => a.position - b.position
 
 export const useEditorStore = create<EditorState>((set, get) => ({
   slots: [],
@@ -80,7 +80,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const map = new Map(s.slots.map((x) => [x.id, x]))
       const next = orderedIds
         .map((id) => map.get(id))
-        .filter((x): x is Slot => Boolean(x))
+        .filter((x): x is SlotWithTakes => Boolean(x))
         .map((slot, i) => ({ ...slot, position: i }))
       return { slots: next }
     }),

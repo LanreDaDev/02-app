@@ -8,6 +8,8 @@ import { useProgressiveClips } from "@/lib/hooks/useProgressiveClips";
 import { useCompositionAutosave } from "@/lib/hooks/useCompositionAutosave";
 import { useTimelineStore, clipFromServer } from "@/lib/stores/useTimelineStore";
 import { useEditorStore } from "@/lib/stores/useEditorStore";
+import { useSlots } from "@/lib/hooks/useSlots";
+import { SequenceRail } from "@/components/editor/SequenceRail";
 import { RemotionPlayer, type RemotionPlayerHandle } from "@/components/timeline/RemotionPlayer";
 import { TimelineTrack } from "@/components/timeline/TimelineTrack";
 import { TimelineControls } from "@/components/timeline/TimelineControls";
@@ -43,10 +45,28 @@ export default function ProjectTimelinePage() {
   const setAspectRatio = useTimelineStore((s) => s.setAspectRatio);
   const storeClips = useTimelineStore((s) => s.clips);
 
-  // One selection, shared with the timeline and — once phase 2 lands — the rail
-  // and inspector. It is a slot id, which is what regenerating actually needs.
+  // One selection, shared with the rail and the timeline — and the inspector
+  // once it lands. It is a slot id, which is what regenerating actually needs.
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId);
   const select = useEditorStore((s) => s.select);
+
+  const { addSlot } = useSlots(projectId);
+  const [addingSlot, setAddingSlot] = useState(false);
+
+  // Select the new card straight away. A clip the agent has to go and find is
+  // one more step between deciding to build something and building it.
+  async function handleAddSlot() {
+    setAddingSlot(true);
+    setError(null);
+    try {
+      const slot = await addSlot();
+      select(slot.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not add a clip");
+    } finally {
+      setAddingSlot(false);
+    }
+  }
   const totalFrames = useMemo(
     () => storeClips.reduce((acc, c) => acc + (c.outFrame - c.inFrame), 0),
     [storeClips]
@@ -349,9 +369,14 @@ export default function ProjectTimelinePage() {
   const totalDurationSec = (totalFrames / FPS).toFixed(1);
 
   return (
-    <div className="cs-scope">
+    <div className="cs-scope flex min-h-0 items-stretch">
       <CinemaStyles />
 
+      {/* The rail is where a clip comes into existence. Everything to its right
+          is the stage — for now still the old single-column timeline. */}
+      <SequenceRail onAddSlot={handleAddSlot} adding={addingSlot} />
+
+      <div className="min-w-0 flex-1">
       <div className="cs-panel" style={{ maxWidth: "1040px", margin: "0 auto", padding: "28px" }}>
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "22px", position: "relative", zIndex: 1 }}>
@@ -596,6 +621,7 @@ export default function ProjectTimelinePage() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }
