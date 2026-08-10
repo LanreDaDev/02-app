@@ -4,10 +4,16 @@ import type { TimelineClipProps, CompositionProps } from '@/lib/remotion/types'
 
 type AspectRatio = '16:9' | '9:16'
 
+/**
+ * The composition: what Remotion renders, in timeline order.
+ *
+ * Deliberately holds no selection. Selection is a slot, it lives in
+ * useEditorStore, and a clip here highlights only by matching its `slotId`
+ * against it — see the note there for the bug that a second selection caused.
+ */
 interface TimelineState {
   clips: TimelineClipProps[]
   aspectRatio: AspectRatio
-  activeClipId: string | null
 
   setClips: (clips: TimelineClipProps[]) => void
   addClip: (clip: TimelineClipProps) => void
@@ -15,7 +21,6 @@ interface TimelineState {
   replaceClip: (id: string, newClip: TimelineClipProps) => void
   reorderClips: (orderedIds: string[]) => void
   setTrim: (id: string, inFrame: number, outFrame: number) => void
-  setActiveClip: (id: string | null) => void
   setAspectRatio: (ratio: AspectRatio) => void
 
   totalDurationInFrames: () => number
@@ -25,7 +30,6 @@ interface TimelineState {
 export const useTimelineStore = create<TimelineState>((set, get) => ({
   clips: [],
   aspectRatio: '16:9',
-  activeClipId: null,
 
   setClips: (clips) => set({ clips }),
 
@@ -42,7 +46,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   removeClip: (id) =>
     set((s) => ({
       clips: s.clips.filter((c) => c.id !== id),
-      activeClipId: s.activeClipId === id ? null : s.activeClipId,
     })),
 
   replaceClip: (id, newClip) =>
@@ -60,8 +63,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     set((s) => ({
       clips: s.clips.map((c) => (c.id === id ? { ...c, inFrame, outFrame } : c)),
     })),
-
-  setActiveClip: (id) => set({ activeClipId: id }),
 
   setAspectRatio: (ratio) => set({ aspectRatio: ratio }),
 

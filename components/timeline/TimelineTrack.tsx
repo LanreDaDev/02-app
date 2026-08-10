@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ZoomIn, ZoomOut } from "lucide-react"
 import { useTimelineStore } from "@/lib/stores/useTimelineStore"
+import { useEditorStore } from "@/lib/stores/useEditorStore"
 import { FPS } from "@/lib/remotion/constants"
 import { cn } from "@/lib/utils"
 import { TimelineClipBlock } from "./TimelineClip"
@@ -17,15 +18,19 @@ const TICK_STEPS = [0.5, 1, 2, 5, 10, 15, 30, 60]
 
 interface TimelineTrackProps {
   playerRef: React.RefObject<RemotionPlayerHandle | null>
-  onRegen?: (clipId: string) => void
+  /** Takes a SLOT id — regenerating asks the slot for another take. */
+  onRegen?: (slotId: string) => void
 }
 
 export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
   const clips = useTimelineStore((s) => s.clips)
-  const activeClipId = useTimelineStore((s) => s.activeClipId)
-  const setActiveClip = useTimelineStore((s) => s.setActiveClip)
   const setTrim = useTimelineStore((s) => s.setTrim)
   const reorderClips = useTimelineStore((s) => s.reorderClips)
+
+  // Selection is the slot's, shared with the rail and the inspector. A clip
+  // never holds one of its own.
+  const selectedSlotId = useEditorStore((s) => s.selectedSlotId)
+  const select = useEditorStore((s) => s.select)
 
   const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PPS)
   const [playhead, setPlayhead] = useState(0)
@@ -185,10 +190,10 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
                 key={clip.id}
                 clip={clip}
                 index={i}
-                isActive={clip.id === activeClipId}
+                isActive={Boolean(clip.slotId) && clip.slotId === selectedSlotId}
                 pxPerSecond={pxPerSecond}
                 onSelect={() => {
-                  setActiveClip(clip.id)
+                  select(clip.slotId ?? null)
                   const startFrame = clips
                     .slice(0, i)
                     .reduce((acc, c) => acc + (c.outFrame - c.inFrame), 0)

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { useRenderStatus } from "@/lib/hooks/useRenderStatus";
 import { useProgressiveClips } from "@/lib/hooks/useProgressiveClips";
 import { useCompositionAutosave } from "@/lib/hooks/useCompositionAutosave";
 import { useTimelineStore, clipFromServer } from "@/lib/stores/useTimelineStore";
+import { useEditorStore } from "@/lib/stores/useEditorStore";
 import { RemotionPlayer, type RemotionPlayerHandle } from "@/components/timeline/RemotionPlayer";
 import { TimelineTrack } from "@/components/timeline/TimelineTrack";
 import { TimelineControls } from "@/components/timeline/TimelineControls";
@@ -39,10 +40,13 @@ export default function ProjectTimelinePage() {
 
   const setClips = useTimelineStore((s) => s.setClips);
   const removeClip = useTimelineStore((s) => s.removeClip);
-  const setActiveClip = useTimelineStore((s) => s.setActiveClip);
   const setAspectRatio = useTimelineStore((s) => s.setAspectRatio);
   const storeClips = useTimelineStore((s) => s.clips);
-  const activeClipId = useTimelineStore((s) => s.activeClipId);
+
+  // One selection, shared with the timeline and — once phase 2 lands — the rail
+  // and inspector. It is a slot id, which is what regenerating actually needs.
+  const selectedSlotId = useEditorStore((s) => s.selectedSlotId);
+  const select = useEditorStore((s) => s.select);
   const totalFrames = useMemo(
     () => storeClips.reduce((acc, c) => acc + (c.outFrame - c.inFrame), 0),
     [storeClips]
@@ -341,20 +345,6 @@ export default function ProjectTimelinePage() {
     setConcatJobId(data.videoId ?? projectId);
   }
 
-  const handleClipClick = useCallback(
-    (id: string, index: number) => {
-      setActiveClip(id);
-      // Seek player to that clip's start frame
-      let frame = 0;
-      for (let i = 0; i < index; i++) {
-        const c = storeClips[i];
-        frame += c.outFrame - c.inFrame;
-      }
-      playerRef.current?.seekToFrame(frame);
-    },
-    [storeClips, setActiveClip]
-  );
-
   const isVertical = aspectRatio === "9:16";
   const totalDurationSec = (totalFrames / FPS).toFixed(1);
 
@@ -509,9 +499,9 @@ export default function ProjectTimelinePage() {
 
             {/* Actions */}
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", marginBottom: "28px" }}>
-              {activeClipId && (
+              {selectedSlotId && (
                 <button
-                  onClick={() => handleRegen(activeClipId)}
+                  onClick={() => handleRegen(selectedSlotId)}
                   disabled={generating}
                   className="cs-btn-ghost"
                   style={{ padding: "10px 18px", borderRadius: "9px", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "7px" }}
