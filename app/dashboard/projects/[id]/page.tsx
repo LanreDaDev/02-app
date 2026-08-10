@@ -9,7 +9,10 @@ import { useCompositionAutosave } from "@/lib/hooks/useCompositionAutosave";
 import { useTimelineStore, clipFromServer } from "@/lib/stores/useTimelineStore";
 import { useEditorStore } from "@/lib/stores/useEditorStore";
 import { useSlots } from "@/lib/hooks/useSlots";
+import { usePhotos } from "@/lib/hooks/usePhotos";
 import { SequenceRail } from "@/components/editor/SequenceRail";
+import { Inspector } from "@/components/editor/Inspector";
+import { displayTokensFor } from "@/lib/editor/motions";
 import { RemotionPlayer, type RemotionPlayerHandle } from "@/components/timeline/RemotionPlayer";
 import { TimelineTrack } from "@/components/timeline/TimelineTrack";
 import { TimelineControls } from "@/components/timeline/TimelineControls";
@@ -19,7 +22,6 @@ import Link from "next/link";
 import {
   Film,
   Download,
-  RotateCcw,
   Plus,
   AlertCircle,
   CheckCircle2,
@@ -50,8 +52,11 @@ export default function ProjectTimelinePage() {
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId);
   const select = useEditorStore((s) => s.select);
 
-  const { addSlot } = useSlots(projectId);
+  const { slots, addSlot, patchSlot } = useSlots(projectId);
+  const { uploads, extractedFrames } = usePhotos(projectId);
   const [addingSlot, setAddingSlot] = useState(false);
+
+  const selectedSlot = slots.find((s) => s.id === selectedSlotId) ?? null;
 
   // Select the new card straight away. A clip the agent has to go and find is
   // one more step between deciding to build something and building it.
@@ -522,19 +527,10 @@ export default function ProjectTimelinePage() {
               <TimelineTrack playerRef={playerRef} onRegen={handleRegen} />
             </div>
 
-            {/* Actions */}
+            {/* Actions. Generating lives in the inspector now — it belongs beside
+                the settings it uses, and a second copy here is what let the two
+                drift apart in the first place. */}
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center", marginBottom: "28px" }}>
-              {selectedSlotId && (
-                <button
-                  onClick={() => handleRegen(selectedSlotId)}
-                  disabled={generating}
-                  className="cs-btn-ghost"
-                  style={{ padding: "10px 18px", borderRadius: "9px", fontSize: "13px", display: "inline-flex", alignItems: "center", gap: "7px" }}
-                >
-                  {generating ? <span className="cs-dot active" /> : <RotateCcw size={13} />}
-                  Redo Clip · 400
-                </button>
-              )}
 
               <button
                 onClick={handleConcat}
@@ -622,6 +618,15 @@ export default function ProjectTimelinePage() {
         </div>
       )}
       </div>
+
+      <Inspector
+        uploads={uploads}
+        extractedFrames={extractedFrames}
+        onPatch={patchSlot}
+        onGenerate={handleRegen}
+        generating={generating}
+        costTokens={displayTokensFor(selectedSlot?.duration_seconds ?? 4)}
+      />
     </div>
   );
 }

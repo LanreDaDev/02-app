@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '@/lib/stores/useEditorStore'
+import { deriveSlotState } from '@/lib/editor/slotState'
 import type { SlotKind, SlotWithTakes } from '@/lib/types/database'
 
 /**
@@ -80,5 +81,68 @@ export function useSlots(projectId: string) {
     [projectId, upsertSlot]
   )
 
-  return { slots, loading, error, refresh, addSlot }
+  /**
+   * Edit a slot. Applies locally first — a slider that waits for a round-trip
+   * before moving reads as broken, and every field here is cheap to undo.
+   *
+   * The server is authoritative on what it stores, so its row replaces the
+   * optimistic one on the way back; a rejected edit reverts to what was there.
+   */
+  const patchSlot = useCallback(
+    async (slotId: string, patch: Record<string, unknown>) => {
+      const before = useEditorStore.getState().slots.find((s) => s.id === slotId)
+      if (!before) return
+
+      const optimistic = { ...before }
+      // Only the fields the inspector can change, mapped to their column names.
+      if ('name' in patch) optimistic.name = patch.name as string
+      if ('kind' in patch) optimistic.kind = patch.kind as typeof before.kind
+      if ('startPhotoId' in patch) optimistic.start_photo_id = patch.startPhotoId as string | null
+      if ('endPhotoId' in patch) optimistic.end_photo_id = patch.endPhotoId as string | null
+      if ('cameraMotion' in patch)
+        optimistic.camera_motion = patch.cameraMotion as typeof before.camera_motion
+      if ('motionAggression' in patch)
+        optimistic.motion_aggression = patch.motionAggression as number
+      if ('durationSeconds' in patch)
+        optimistic.duration_seconds = patch.durationSeconds as typeof before.duration_seconds
+      if ('holdDurationSeconds' in patch)
+        optimistic.hold_duration_seconds = patch.holdDurationSeconds as number
+      if ('stillMotion' in patch)
+        optimistic.still_motion = patch.stillMotion as typeof before.still_motion
+
+      // State is derived from kind and start_photo_id, both of which are edited
+      // here — carrying the old one over would leave a still that just got its
+      // photo still reading "Needs a photo".
+      optimistic.state = deriveSlotState(optimistic, optimistic.activeTake)
+
+      useEditorStore.getState().upsertSlot(optimistic)
+
+      try {
+        const res = await fetch(`/api/slots/${slotId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error ?? 'Could not save that change')
+        }
+        const saved = (await res.json()) as SlotWithTakes
+        // Keep the takes we already have: PATCH returns the slot row, not its
+        // history, and dropping them would blank the card mid-edit.
+        useEditorStore.getState().upsertSlot({
+          ...saved,
+          takes: before.takes,
+          activeTake: before.activeTake,
+          state: deriveSlotState(saved, before.activeTake),
+        })
+      } catch (e) {
+        useEditorStore.getState().upsertSlot(before)
+        throw e
+      }
+    },
+    []
+  )
+
+  return { slots, loading, error, refresh, addSlot, patchSlot }
 }

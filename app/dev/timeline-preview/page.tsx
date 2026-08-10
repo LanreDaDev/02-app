@@ -16,8 +16,11 @@ import { TimelineControls } from "@/components/timeline/TimelineControls"
 import { useTimelineStore } from "@/lib/stores/useTimelineStore"
 import { useEditorStore } from "@/lib/stores/useEditorStore"
 import { SequenceRail } from "@/components/editor/SequenceRail"
+import { Inspector } from "@/components/editor/Inspector"
 import { FPS } from "@/lib/remotion/constants"
 import type { SlotKind, SlotState, SlotWithTakes } from "@/lib/types/database"
+import type { EditorPhoto } from "@/lib/hooks/usePhotos"
+import { deriveSlotState } from "@/lib/editor/slotState"
 
 /** Inline SVG so nothing depends on the network or a live Mux asset. */
 function swatch(label: string, hue: number) {
@@ -45,6 +48,23 @@ const SAMPLE_SRC = [
 ]
 
 const SOURCE_SECONDS = 8
+
+/** Inline SVG photos so the picker works offline, like everything else here. */
+const MOCK_PHOTOS: EditorPhoto[] = [
+  "Kitchen",
+  "Bedroom",
+  "Garden",
+  "Bathroom",
+  "Hall",
+  "Study",
+].map((name, i) => ({
+  id: `mock-photo-${i}`,
+  file_name: `${name}.jpg`,
+  s3_key: `photos/mock/${i}.jpg`,
+  s3_url: swatch(name, 20 + i * 47),
+  source: "upload" as const,
+  created_at: new Date().toISOString(),
+}))
 
 /** A rail card without a database. Only the fields the rail actually reads. */
 function mockSlot(
@@ -181,6 +201,32 @@ export default function TimelinePreviewPage() {
         </pre>
       </details>
       </div>
+
+      {/* Third surface on the same selection. Edits go to the store rather than
+          the network so the harness stays offline — the real page hands
+          patchSlot in here instead. */}
+      <Inspector
+        uploads={MOCK_PHOTOS}
+        extractedFrames={[]}
+        onPatch={async (slotId, patch) => {
+          const s = useEditorStore.getState().slots.find((x) => x.id === slotId)
+          if (!s) return
+          const next = { ...s }
+          if ("name" in patch) next.name = patch.name as string
+          if ("kind" in patch) next.kind = patch.kind as typeof s.kind
+          if ("startPhotoId" in patch) next.start_photo_id = patch.startPhotoId as string | null
+          if ("endPhotoId" in patch) next.end_photo_id = patch.endPhotoId as string | null
+          if ("cameraMotion" in patch) next.camera_motion = patch.cameraMotion as typeof s.camera_motion
+          if ("motionAggression" in patch) next.motion_aggression = patch.motionAggression as number
+          if ("durationSeconds" in patch) next.duration_seconds = patch.durationSeconds as typeof s.duration_seconds
+          if ("holdDurationSeconds" in patch) next.hold_duration_seconds = patch.holdDurationSeconds as number
+          if ("stillMotion" in patch) next.still_motion = patch.stillMotion as typeof s.still_motion
+          next.state = deriveSlotState(next, next.activeTake)
+          useEditorStore.getState().upsertSlot(next)
+        }}
+        onGenerate={(slotId) => console.log("generate requested for", slotId)}
+        costTokens={400}
+      />
     </div>
   )
 }
