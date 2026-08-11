@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { Film, Image as ImageIcon, Sparkles, X } from 'lucide-react'
 import { useEditorStore } from '@/lib/stores/useEditorStore'
+import { useTimelineStore } from '@/lib/stores/useTimelineStore'
+import { runtimeSeconds } from '@/lib/editor/runtime'
 import { cn } from '@/lib/utils'
 import {
   CLIP_DURATIONS,
@@ -14,7 +16,7 @@ import {
 } from '@/lib/editor/motions'
 import { changedSince, joinChanges } from '@/lib/editor/dirty'
 import type { EditorPhoto } from '@/lib/hooks/usePhotos'
-import type { SlotKind, SlotTake, StillMotion } from '@/lib/types/database'
+import type { SlotKind, SlotTake, SlotWithTakes, StillMotion } from '@/lib/types/database'
 
 /**
  * The inspector: everything about the selected slot.
@@ -38,6 +40,8 @@ interface InspectorProps {
   generating?: boolean
   /** Tokens for the selected length, so the button can say what it costs. */
   costTokens: number
+  /** Shown when nothing is selected. The resting state, not an empty one. */
+  project?: { title: string; aspectRatio: string }
 }
 
 export function Inspector({
@@ -48,6 +52,7 @@ export function Inspector({
   onSelectTake,
   generating,
   costTokens,
+  project,
 }: InspectorProps) {
   const slots = useEditorStore((s) => s.slots)
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId)
@@ -68,16 +73,13 @@ export function Inspector({
     }
   }
 
+  // Nothing selected is not an empty state — it is the project. This is why
+  // there is no settings page and no fourth panel, and it is what the agent
+  // lands on every time they open the editor.
   if (!slot) {
     return (
       <aside className="flex h-full w-full min-w-0 shrink-0 flex-col border-l border-border bg-card">
-        <div className="mt-10 px-6 text-center">
-          <p className="text-sm text-foreground">Nothing selected</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
-            Pick a clip from the sequence to change how it looks or make it
-            again.
-          </p>
-        </div>
+        <ProjectSettings project={project} slots={slots} />
       </aside>
     )
   }
@@ -343,6 +345,120 @@ export function Inspector({
         </div>
       )}
     </aside>
+  )
+}
+
+/**
+ * Everything about the video, when no one clip is in question.
+ *
+ * Only what the schema actually holds. A music or brand-kit group would have to
+ * be invented here, and a control that stores nothing is worse than a missing
+ * one — the agent sets it, it does nothing, and they stop trusting the panel.
+ */
+function ProjectSettings({
+  project,
+  slots,
+}: {
+  project?: { title: string; aspectRatio: string }
+  slots: SlotWithTakes[]
+}) {
+  const ready = slots.filter((s) => s.state === 'ready')
+  const notReady = slots.filter((s) => s.state !== 'ready')
+
+  // The same figure the top bar and the timeline show, from the same function.
+  const clips = useTimelineStore((s) => s.clips)
+  const runtime = runtimeSeconds(slots, clips)
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <header className="border-b border-border px-4 py-3.5">
+        <h2 className="text-sm font-medium text-foreground">
+          {project?.title || 'Project'}
+        </h2>
+        <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+          Nothing selected — this is the whole video and everything about it.
+        </p>
+      </header>
+
+      <Group label="Format">
+        <Row label="Aspect ratio" value={project?.aspectRatio ?? '—'} />
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          Chosen when the project was created, and permanent. A second format
+          means a second project.
+        </p>
+        <Row label="Runtime" value={`${runtime.toFixed(1)}s`} />
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          An estimate until every clip is generated.
+        </p>
+      </Group>
+
+      <Group label="Sequence">
+        <Row label="Clips" value={String(slots.length)} />
+        <Row label="Ready" value={`${ready.length}/${slots.length}`} />
+
+        {notReady.length > 0 && (
+          <div className="mt-1">
+            <p className="mb-1.5 text-[11px] text-muted-foreground">
+              Export waits for these:
+            </p>
+            <ul className="flex flex-col gap-1">
+              {/* By name, not by number. "Clip 14 isn't ready" tells the agent
+                  nothing; "Primary bedroom isn't ready" is actionable. */}
+              {notReady.map((s) => (
+                <li
+                  key={s.id}
+                  className="flex items-baseline justify-between gap-2 text-[11.5px]"
+                >
+                  <span className="truncate text-foreground">{s.name}</span>
+                  <span
+                    className={cn(
+                      'shrink-0 text-[11px]',
+                      s.state === 'failed' ? 'text-destructive' : 'text-muted-foreground'
+                    )}
+                  >
+                    {s.state === 'failed'
+                      ? 'Failed'
+                      : s.state === 'draft'
+                        ? 'Needs a photo'
+                        : s.state === 'running'
+                          ? 'Generating'
+                          : 'Queued'}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {slots.length > 0 && notReady.length === 0 && (
+          <p className="text-[11.5px] leading-relaxed text-success">
+            Every clip is ready. This video can be exported.
+          </p>
+        )}
+      </Group>
+    </div>
+  )
+}
+
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2.5 border-b border-border p-4">
+      <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </section>
+  )
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="text-[12.5px] text-foreground">{label}</span>
+      <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+        {value}
+      </span>
+    </div>
   )
 }
 

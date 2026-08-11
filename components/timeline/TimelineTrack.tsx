@@ -8,6 +8,7 @@ import { FPS } from "@/lib/remotion/constants"
 import { cn } from "@/lib/utils"
 import { TimelineClipBlock } from "./TimelineClip"
 import type { RemotionPlayerHandle } from "./RemotionPlayer"
+import { runtimeSeconds } from "@/lib/editor/runtime"
 import type { SlotState } from "@/lib/types/database"
 
 const MIN_PPS = 20
@@ -85,10 +86,10 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
     })
   }, [slots, clips])
 
-  const totalSeconds = useMemo(
-    () => spine.reduce((acc, item) => acc + item.seconds, 0),
-    [spine]
-  )
+  // Same figure as the top bar and the project panel, from the same function.
+  // The spine's own widths sum to this by construction; going through
+  // runtimeSeconds keeps the three surfaces provably in step.
+  const totalSeconds = useMemo(() => runtimeSeconds(slots, clips), [slots, clips])
   const trackWidth = totalSeconds * pxPerSecond
 
   // Follow playback rather than polling, so the playhead never drifts.
@@ -341,12 +342,19 @@ function clamp(n: number, min: number, max: number) {
   return Math.min(Math.max(n, min), max)
 }
 
+/**
+ * Tenths of a second, not frames.
+ *
+ * This used to print m:ss.FF, so 30.75s rendered as "0:30.23" — which reads as
+ * thirty-point-two-three to anyone who does not already know it means twenty
+ * three frames, and the agent using this has never opened an editor. It also
+ * made the timeline appear to disagree with the runtime shown everywhere else.
+ */
 function formatTimecode(frames: number) {
   const totalSec = frames / FPS
   const m = Math.floor(totalSec / 60)
-  const s = Math.floor(totalSec % 60)
-  const f = Math.floor(frames % FPS)
-  return `${m}:${String(s).padStart(2, "0")}.${String(f).padStart(2, "0")}`
+  const s = totalSec % 60
+  return `${m}:${s.toFixed(1).padStart(4, "0")}`
 }
 
 function formatTick(t: number) {

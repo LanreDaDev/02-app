@@ -19,6 +19,7 @@ import { TimelineControls } from "@/components/timeline/TimelineControls";
 import { SequenceRail } from "@/components/editor/SequenceRail";
 import { Inspector } from "@/components/editor/Inspector";
 import { displayTokensFor } from "@/lib/editor/motions";
+import { runtimeSeconds } from "@/lib/editor/runtime";
 import { FPS } from "@/lib/remotion/constants";
 import { cn } from "@/lib/utils";
 
@@ -70,14 +71,10 @@ export default function EditorPage() {
   const selectedSlot = slots.find((s) => s.id === selectedSlotId) ?? null;
   const isVertical = aspectRatio === "9:16";
 
-  // Runtime is derived, never stored. A slot without a take contributes its
-  // target length as an estimate so the number doesn't jump when jobs land.
+  // Derived, never stored, and shared with the timeline and project panel so
+  // the three cannot disagree.
   const readyCount = slots.filter((s) => s.state === "ready").length;
-  const runtimeSec = slots.reduce(
-    (acc, s) =>
-      acc + (s.kind === "still" ? s.hold_duration_seconds : s.duration_seconds),
-    0
-  );
+  const runtimeSec = runtimeSeconds(slots, storeClips);
 
   useEffect(() => {
     void loadProject();
@@ -322,6 +319,7 @@ export default function EditorPage() {
           onSelectTake={selectTake}
           generating={generating}
           costTokens={displayTokensFor(selectedSlot?.duration_seconds ?? 4)}
+          project={{ title: projectTitle, aspectRatio }}
         />
       </main>
 

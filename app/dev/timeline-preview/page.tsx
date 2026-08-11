@@ -288,6 +288,7 @@ export default function TimelinePreviewPage() {
           })
         }}
         costTokens={400}
+        project={{ title: "1247 Ardmore Drive", aspectRatio: vertical ? "9:16" : "16:9" }}
       />
       </div>
     </div>
