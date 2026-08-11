@@ -18,6 +18,7 @@ import { TimelineTrack } from "@/components/timeline/TimelineTrack";
 import { TimelineControls } from "@/components/timeline/TimelineControls";
 import { SequenceRail } from "@/components/editor/SequenceRail";
 import { Inspector } from "@/components/editor/Inspector";
+import { UndoBar } from "@/components/editor/UndoBar";
 import { displayTokensFor } from "@/lib/editor/motions";
 import { runtimeSeconds } from "@/lib/editor/runtime";
 import { FPS } from "@/lib/remotion/constants";
@@ -45,7 +46,17 @@ export default function EditorPage() {
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId);
   const select = useEditorStore((s) => s.select);
 
-  const { slots, addSlot, patchSlot, selectTake, refresh } = useSlots(projectId);
+  const {
+    slots,
+    addSlot,
+    patchSlot,
+    selectTake,
+    refresh,
+    deleteSlot,
+    undoDelete,
+    pendingDelete,
+    undoWindowMs,
+  } = useSlots(projectId);
   const { uploads, extractedFrames } = usePhotos(projectId);
 
   const [projectTitle, setProjectTitle] = useState("Untitled");
@@ -66,6 +77,7 @@ export default function EditorPage() {
   useEditorShortcuts({
     playerRef,
     onGenerate: handleGenerate,
+    onDelete: deleteSlot,
     enabled: !loading,
   });
 
@@ -225,7 +237,10 @@ export default function EditorPage() {
   const notReady = slots.filter((s) => s.state !== "ready");
 
   return (
-    <div className="grid h-full grid-cols-[320px_minmax(0,1fr)] grid-rows-[52px_minmax(0,1fr)_auto]">
+    // Relative so the undo bar can sit over the editor rather than inside one
+    // of its three regions — the delete it is holding open belongs to all of
+    // them.
+    <div className="relative grid h-full grid-cols-[320px_minmax(0,1fr)] grid-rows-[52px_minmax(0,1fr)_auto]">
       {/* Top bar */}
       <header className="col-span-full flex items-center gap-4 border-b border-border bg-card px-4">
         <Link
@@ -330,6 +345,7 @@ export default function EditorPage() {
           extractedFrames={extractedFrames}
           onPatch={patchSlot}
           onGenerate={handleGenerate}
+          onDelete={deleteSlot}
           onSelectTake={selectTake}
           generating={generating}
           costTokens={displayTokensFor(selectedSlot?.duration_seconds ?? 4)}
@@ -354,6 +370,8 @@ export default function EditorPage() {
           </div>
         )}
       </div>
+
+      <UndoBar pending={pendingDelete} windowMs={undoWindowMs} onUndo={undoDelete} />
     </div>
   );
 }

@@ -22,6 +22,8 @@ import type { RemotionPlayerHandle } from '@/components/timeline/RemotionPlayer'
 interface Options {
   playerRef: React.RefObject<RemotionPlayerHandle | null>
   onGenerate?: (slotId: string) => void | Promise<void>
+  /** Reversible — see useSlots. No confirmation, because there is an undo. */
+  onDelete?: (slotId: string) => void
   /** Off while a modal owns the keyboard, or before the project has loaded. */
   enabled?: boolean
 }
@@ -56,7 +58,12 @@ function currentRange(): { from: number; to: number; blocked: boolean } {
   return { ...range, blocked: false }
 }
 
-export function useEditorShortcuts({ playerRef, onGenerate, enabled = true }: Options) {
+export function useEditorShortcuts({
+  playerRef,
+  onGenerate,
+  onDelete,
+  enabled = true,
+}: Options) {
   useEffect(() => {
     if (!enabled) return
 
@@ -118,6 +125,18 @@ export function useEditorShortcuts({ playerRef, onGenerate, enabled = true }: Op
           break
         }
 
+        case 'Backspace':
+        case 'Delete':
+          // No confirmation. The clip leaves the rail and the undo bar holds the
+          // request open — asking "are you sure" before they can see what
+          // happened is the worse trade, and this is the key an agent reaches
+          // for mid-review without breaking stride.
+          if (selectedSlotId && onDelete) {
+            e.preventDefault()
+            onDelete(selectedSlotId)
+          }
+          break
+
         case 'Enter':
           // ⌘↵ generates the selected slot; plain Enter is rename, which the
           // inspector's name field owns.
@@ -131,5 +150,5 @@ export function useEditorShortcuts({ playerRef, onGenerate, enabled = true }: Op
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [playerRef, onGenerate, enabled])
+  }, [playerRef, onGenerate, onDelete, enabled])
 }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Film, Image as ImageIcon, Sparkles, X } from 'lucide-react'
+import { Film, Image as ImageIcon, Sparkles, Trash2, X } from 'lucide-react'
 import { useEditorStore } from '@/lib/stores/useEditorStore'
 import { useTimelineStore } from '@/lib/stores/useTimelineStore'
 import { runtimeSeconds } from '@/lib/editor/runtime'
@@ -35,6 +35,8 @@ interface InspectorProps {
   extractedFrames: EditorPhoto[]
   onPatch: (slotId: string, patch: Record<string, unknown>) => Promise<void>
   onGenerate: (slotId: string) => void | Promise<void>
+  /** Reversible for a few seconds — the undo bar is the confirmation. */
+  onDelete?: (slotId: string) => void
   /** Switch which paid-for take is active. Instant; nothing regenerates. */
   onSelectTake?: (slotId: string, takeId: string) => Promise<void>
   generating?: boolean
@@ -49,6 +51,7 @@ export function Inspector({
   extractedFrames,
   onPatch,
   onGenerate,
+  onDelete,
   onSelectTake,
   generating,
   costTokens,
@@ -298,6 +301,23 @@ export function Inspector({
               </Field>
             )}
           </>
+        )}
+
+        {/* Last, quiet, and below everything worth doing. The keyboard is where
+            this actually gets used mid-review; this is here so it can be found
+            at all, and so the shortcut has somewhere to be written down. */}
+        {onDelete && (
+          <div className="border-t border-border pt-4">
+            <button
+              type="button"
+              onClick={() => onDelete(slot.id)}
+              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-border py-1.5 text-[12px] text-muted-foreground transition-colors hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 size={11} />
+              Delete clip
+              <span className="font-mono text-[10px] opacity-60">⌫</span>
+            </button>
+          </div>
         )}
       </div>
 

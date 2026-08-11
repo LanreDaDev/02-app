@@ -8,7 +8,7 @@
  * waiting on Mux encoding. Returns 404 in production.
  */
 
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { notFound } from "next/navigation"
 import { RemotionPlayer, type RemotionPlayerHandle } from "@/components/timeline/RemotionPlayer"
 import { TimelineTrack } from "@/components/timeline/TimelineTrack"
@@ -22,6 +22,11 @@ import type { SlotKind, SlotState, SlotTake, SlotWithTakes } from "@/lib/types/d
 import type { EditorPhoto } from "@/lib/hooks/usePhotos"
 import { deriveSlotState } from "@/lib/editor/slotState"
 import { useEditorShortcuts } from "@/lib/hooks/useEditorShortcuts"
+import { UndoBar } from "@/components/editor/UndoBar"
+import type { PendingDelete } from "@/lib/hooks/useSlots"
+
+/** Mirrors useSlots' own window, so the harness times out like the real thing. */
+const UNDO_MS = 7000
 
 /** Inline SVG so nothing depends on the network or a live Mux asset. */
 function swatch(label: string, hue: number) {
@@ -150,6 +155,38 @@ export default function TimelinePreviewPage() {
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId)
   const [vertical, setVertical] = useState(false)
 
+  // A local stand-in for useSlots' deferred delete: same shape, same undo
+  // window, no network. Enough to exercise the bar and the ⌫ binding.
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
+  const heldSlot = useRef<SlotWithTakes | null>(null)
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const deleteSlot = useCallback((slotId: string) => {
+    const store = useEditorStore.getState()
+    const index = store.slots.findIndex((s) => s.id === slotId)
+    if (index === -1) return
+
+    const slot = store.slots[index]
+    const neighbour = store.slots[index + 1] ?? store.slots[index - 1] ?? null
+
+    store.removeSlot(slotId)
+    if (store.selectedSlotId === slotId) store.select(neighbour?.id ?? null)
+
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    heldSlot.current = slot
+    setPendingDelete({ id: slot.id, name: slot.name, takes: slot.takes.length })
+    undoTimer.current = setTimeout(() => setPendingDelete(null), UNDO_MS)
+  }, [])
+
+  const undoDelete = useCallback(() => {
+    if (undoTimer.current) clearTimeout(undoTimer.current)
+    const slot = heldSlot.current
+    setPendingDelete(null)
+    if (!slot) return
+    useEditorStore.getState().upsertSlot(slot)
+    useEditorStore.getState().select(slot.id)
+  }, [])
+
   useEffect(() => {
     setClips([
       ...DURATIONS.map((sec, i) => ({
@@ -210,7 +247,7 @@ export default function TimelinePreviewPage() {
     setAspectRatio(vertical ? "9:16" : "16:9")
   }, [vertical, setAspectRatio])
 
-  useEditorShortcuts({ playerRef })
+  useEditorShortcuts({ playerRef, onDelete: deleteSlot })
 
   return (
     // Fixed viewport height with the scroll inside each column: the rail has to
@@ -218,7 +255,7 @@ export default function TimelinePreviewPage() {
     // to click the next card.
     // Dark, like the real shell — the harness is worthless if it renders the
     // components in an environment they never actually live in.
-    <div className="dark flex h-screen items-stretch overflow-hidden bg-background text-foreground">
+    <div className="dark relative flex h-screen items-stretch overflow-hidden bg-background text-foreground">
       {/* The rail shares the one selection with the timeline below: clicking a
           card highlights the matching clip, and clicking a clip highlights the
           card. If those ever disagree, the store grew a second selection. */}
@@ -312,10 +349,13 @@ export default function TimelinePreviewPage() {
             activeTake: takes.find((t) => t.is_current) ?? null,
           })
         }}
+        onDelete={deleteSlot}
         costTokens={400}
         project={{ title: "1247 Ardmore Drive", aspectRatio: vertical ? "9:16" : "16:9" }}
       />
       </div>
+
+      <UndoBar pending={pendingDelete} windowMs={UNDO_MS} onUndo={undoDelete} />
     </div>
   )
 }
