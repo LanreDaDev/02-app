@@ -12,8 +12,9 @@ import {
   defaultMotionFor,
   motionOptions,
 } from '@/lib/editor/motions'
+import { changedSince, joinChanges } from '@/lib/editor/dirty'
 import type { EditorPhoto } from '@/lib/hooks/usePhotos'
-import type { ClipDuration, SlotKind, StillMotion } from '@/lib/types/database'
+import type { SlotKind, SlotTake, StillMotion } from '@/lib/types/database'
 
 /**
  * The inspector: everything about the selected slot.
@@ -32,6 +33,8 @@ interface InspectorProps {
   extractedFrames: EditorPhoto[]
   onPatch: (slotId: string, patch: Record<string, unknown>) => Promise<void>
   onGenerate: (slotId: string) => void | Promise<void>
+  /** Switch which paid-for take is active. Instant; nothing regenerates. */
+  onSelectTake?: (slotId: string, takeId: string) => Promise<void>
   generating?: boolean
   /** Tokens for the selected length, so the button can say what it costs. */
   costTokens: number
@@ -42,6 +45,7 @@ export function Inspector({
   extractedFrames,
   onPatch,
   onGenerate,
+  onSelectTake,
   generating,
   costTokens,
 }: InspectorProps) {
@@ -50,6 +54,19 @@ export function Inspector({
   const slot = slots.find((s) => s.id === selectedSlotId) ?? null
 
   const [saveError, setSaveError] = useState<string | null>(null)
+
+  // What the panel says versus what the take on screen was actually made with.
+  const changes = slot ? changedSince(slot, slot.activeTake) : []
+
+  async function selectTake(takeId: string) {
+    if (!slot || !onSelectTake) return
+    setSaveError(null)
+    try {
+      await onSelectTake(slot.id, takeId)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Could not switch take')
+    }
+  }
 
   if (!slot) {
     return (
@@ -255,28 +272,68 @@ export function Inspector({
                 Longer holds the screen — worth it on the exterior and the view.
               </p>
             </Field>
+
+            {/* Only worth showing once there is a choice to make. */}
+            {slot.takes.length > 1 && (
+              <Field label="Takes" hint="Switching is instant">
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  {slot.takes.map((take, i) => (
+                    <TakeThumb
+                      key={take.id}
+                      take={take}
+                      // Newest first, so the most recent result is where the
+                      // eye already is.
+                      number={slot.takes.length - i}
+                      active={take.id === slot.activeTake?.id}
+                      onSelect={() => void selectTake(take.id)}
+                    />
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  Every take you have paid for is kept. Going back to one costs
+                  nothing.
+                </p>
+              </Field>
+            )}
           </>
         )}
       </div>
 
       {!isStill && (
         <div className="border-t border-border p-3">
+          {/* The take on screen no longer matches the panel above it. Say so
+              plainly and name what changed — otherwise the agent moves a
+              control, sees nothing happen, and decides it is broken. */}
+          {changes.length > 0 && (
+            <p className="mb-2.5 rounded-md border border-warning/35 bg-warning/10 px-2.5 py-2 text-[11.5px] leading-relaxed text-warning">
+              You changed {joinChanges(changes)} since this take was made. It
+              keeps playing until you generate again.
+            </p>
+          )}
+
           <button
             type="button"
             onClick={() => void onGenerate(slot.id)}
             disabled={!canGenerate}
             className={cn(
               'flex w-full items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm transition-opacity',
-              'bg-primary text-primary-foreground hover:opacity-90',
+              // Dirty makes regenerating the obvious next move, so it takes the
+              // accent. Otherwise it is a secondary act beside a take that is
+              // already correct.
+              changes.length > 0
+                ? 'bg-warning text-background hover:opacity-90'
+                : 'bg-primary text-primary-foreground hover:opacity-90',
               'disabled:cursor-not-allowed disabled:opacity-50'
             )}
           >
             <Sparkles size={14} />
             {generating
               ? 'Generating…'
-              : slot.takes.length > 0
-                ? `Generate again · ${costTokens}`
-                : `Generate · ${costTokens}`}
+              : changes.length > 0
+                ? `Generate with new settings · ${costTokens}`
+                : slot.takes.length > 0
+                  ? `Generate again · ${costTokens}`
+                  : `Generate · ${costTokens}`}
           </button>
           {!slot.start_photo_id && (
             <p className="mt-2 text-center text-[11px] text-muted-foreground">
@@ -371,6 +428,47 @@ function Select({
         </option>
       ))}
     </select>
+  )
+}
+
+function TakeThumb({
+  take,
+  number,
+  active,
+  onSelect,
+}: {
+  take: SlotTake
+  number: number
+  active: boolean
+  onSelect: () => void
+}) {
+  const poster = take.mux_playback_id
+    ? `https://image.mux.com/${take.mux_playback_id}/thumbnail.webp?width=120&fit_mode=smartcrop`
+    : null
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={active}
+      aria-label={`Take ${number}${active ? ', playing' : ''}`}
+      className={cn(
+        'relative aspect-video w-[68px] shrink-0 overflow-hidden rounded border transition-colors',
+        active ? 'border-warning ring-1 ring-warning' : 'border-border hover:border-foreground/30'
+      )}
+    >
+      {poster ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={poster} alt="" className="h-full w-full object-cover" loading="lazy" />
+      ) : (
+        <span className="grid h-full w-full place-items-center bg-muted">
+          <Film size={12} className="text-muted-foreground" />
+        </span>
+      )}
+      <span className="absolute left-1 top-1 rounded bg-background/75 px-1 font-mono text-[9px] tabular-nums leading-tight text-foreground">
+        {number}
+      </span>
+    </button>
   )
 }
 

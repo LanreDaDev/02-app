@@ -144,5 +144,44 @@ export function useSlots(projectId: string) {
     []
   )
 
-  return { slots, loading, error, refresh, addSlot, patchSlot }
+  /**
+   * Make an earlier take the active one. Instant — no generation, no charge.
+   *
+   * Applied locally first so the switch feels like what it is: picking between
+   * results that already exist, rather than requesting something.
+   */
+  const selectTake = useCallback(
+    async (slotId: string, takeId: string) => {
+      const before = useEditorStore.getState().slots.find((s) => s.id === slotId)
+      if (!before) return
+
+      const next = before.takes.find((t) => t.id === takeId)
+      if (!next) return
+
+      useEditorStore.getState().upsertSlot({
+        ...before,
+        takes: before.takes.map((t) => ({ ...t, is_current: t.id === takeId })),
+        activeTake: { ...next, is_current: true },
+        state: deriveSlotState(before, next),
+      })
+
+      try {
+        const res = await fetch(`/api/slots/${slotId}/take`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ takeId }),
+        })
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error ?? 'Could not switch take')
+        }
+      } catch (e) {
+        useEditorStore.getState().upsertSlot(before)
+        throw e
+      }
+    },
+    []
+  )
+
+  return { slots, loading, error, refresh, addSlot, patchSlot, selectTake }
 }

@@ -42,7 +42,7 @@ export default function EditorPage() {
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId);
   const select = useEditorStore((s) => s.select);
 
-  const { slots, addSlot, patchSlot, refresh } = useSlots(projectId);
+  const { slots, addSlot, patchSlot, selectTake, refresh } = useSlots(projectId);
   const { uploads, extractedFrames } = usePhotos(projectId);
 
   const [projectTitle, setProjectTitle] = useState("Untitled");
@@ -310,6 +310,7 @@ export default function EditorPage() {
           extractedFrames={extractedFrames}
           onPatch={patchSlot}
           onGenerate={handleGenerate}
+          onSelectTake={selectTake}
           generating={generating}
           costTokens={displayTokensFor(selectedSlot?.duration_seconds ?? 4)}
         />

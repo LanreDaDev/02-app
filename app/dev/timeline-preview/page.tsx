@@ -18,7 +18,7 @@ import { useEditorStore } from "@/lib/stores/useEditorStore"
 import { SequenceRail } from "@/components/editor/SequenceRail"
 import { Inspector } from "@/components/editor/Inspector"
 import { FPS } from "@/lib/remotion/constants"
-import type { SlotKind, SlotState, SlotWithTakes } from "@/lib/types/database"
+import type { SlotKind, SlotState, SlotTake, SlotWithTakes } from "@/lib/types/database"
 import type { EditorPhoto } from "@/lib/hooks/usePhotos"
 import { deriveSlotState } from "@/lib/editor/slotState"
 
@@ -67,11 +67,43 @@ const MOCK_PHOTOS: EditorPhoto[] = [
 }))
 
 /** A rail card without a database. Only the fields the rail actually reads. */
+/** Takes for a slot, newest first, optionally generated with stale settings. */
+function mockTakes(slotId: string, count: number, staleParams = false): SlotTake[] {
+  return Array.from({ length: count }, (_, n) => ({
+    id: `${slotId}-take-${n}`,
+    slot_id: slotId,
+    status: "succeeded" as const,
+    mux_playback_id: null,
+    is_current: n === 0,
+    // Deliberately different from the slot's current values so the dirty
+    // notice has something real to name.
+    params: staleParams
+      ? {
+          start_photo_id: `mock-photo-0`,
+          end_photo_id: null,
+          camera_motion: "pull_out",
+          motion_aggression: 20,
+          duration_seconds: 6,
+        }
+      : null,
+    created_at: new Date(Date.now() - n * 6e5).toISOString(),
+    error_message: null,
+  }))
+}
+
 function mockSlot(
   i: number,
-  opts: { state: SlotState; name?: string; seconds?: number; kind?: SlotKind }
+  opts: {
+    state: SlotState
+    name?: string
+    seconds?: number
+    kind?: SlotKind
+    takes?: number
+    stale?: boolean
+  }
 ): SlotWithTakes {
   const kind = opts.kind ?? "generated"
+  const takes = mockTakes(`mock-slot-${i}`, opts.takes ?? 0, opts.stale)
   return {
     id: `mock-slot-${i}`,
     project_id: "mock-project",
@@ -89,10 +121,10 @@ function mockSlot(
     still_motion: "zoom_in",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-    takes: [],
-    // No playback id, so cards fall back to their icon rather than reaching for
-    // a Mux thumbnail that does not exist. The harness stays offline.
-    activeTake: null,
+    takes,
+    // No playback id, so cards and take thumbs fall back to their icon rather
+    // than reaching for a Mux thumbnail that does not exist. Stays offline.
+    activeTake: takes.find((t) => t.is_current) ?? null,
     state: opts.state,
   }
 }
@@ -135,7 +167,12 @@ export default function TimelinePreviewPage() {
   // states are all visible without generating anything.
   useEffect(() => {
     setSlots([
-      ...DURATIONS.map((sec, i) => mockSlot(i, { state: "ready", seconds: sec })),
+      // Clip 1 has three takes and was generated with settings that have since
+      // changed — the two states this panel most needs to get right.
+      mockSlot(0, { state: "ready", seconds: DURATIONS[0], takes: 3, stale: true }),
+      ...DURATIONS.slice(1).map((sec, i) =>
+        mockSlot(i + 1, { state: "ready", seconds: sec, takes: i === 0 ? 2 : 1 })
+      ),
       mockSlot(DURATIONS.length, { state: "running", name: "Back garden" }),
       mockSlot(DURATIONS.length + 1, { state: "draft", name: "Hallway" }),
       mockSlot(DURATIONS.length + 2, { state: "failed", name: "Loft" }),
@@ -237,6 +274,16 @@ export default function TimelinePreviewPage() {
           useEditorStore.getState().upsertSlot(next)
         }}
         onGenerate={(slotId) => console.log("generate requested for", slotId)}
+        onSelectTake={async (slotId, takeId) => {
+          const s = useEditorStore.getState().slots.find((x) => x.id === slotId)
+          if (!s) return
+          const takes = s.takes.map((t) => ({ ...t, is_current: t.id === takeId }))
+          useEditorStore.getState().upsertSlot({
+            ...s,
+            takes,
+            activeTake: takes.find((t) => t.is_current) ?? null,
+          })
+        }}
         costTokens={400}
       />
       </div>
