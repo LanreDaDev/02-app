@@ -194,6 +194,22 @@ export default function EditorPage() {
     );
   }
 
+  /**
+   * A still is on the timeline the moment it has a photo.
+   *
+   * Nothing else refreshes the composition, because everything else gets there
+   * by generating — and loadClips only ran on load and after a generate. A
+   * still has no generate, so switching a clip to Still and choosing its photo
+   * put a card in the rail and nothing on the timeline until a full reload.
+   * There was no way to see a still at all.
+   */
+  const STILL_FIELDS = ["kind", "startPhotoId", "holdDurationSeconds", "stillMotion"];
+
+  async function handlePatch(slotId: string, patch: Record<string, unknown>) {
+    await patchSlot(slotId, patch);
+    if (STILL_FIELDS.some((f) => f in patch)) await loadClips();
+  }
+
   async function handleAddSlot() {
     setAddingSlot(true);
     setError(null);
@@ -385,7 +401,7 @@ export default function EditorPage() {
         <Inspector
           uploads={uploads}
           extractedFrames={extractedFrames}
-          onPatch={patchSlot}
+          onPatch={handlePatch}
           onGenerate={handleGenerate}
           onDelete={deleteSlot}
           onSelectTake={selectTake}

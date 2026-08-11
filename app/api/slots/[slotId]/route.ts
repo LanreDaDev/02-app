@@ -12,6 +12,19 @@ import type { CameraMotion, ClipDuration, SlotKind, StillMotion } from '@/lib/ty
  * like a toggle.
  */
 
+/**
+ * The presets each frame count allows. Mirrors motion.py on the worker, which
+ * is the authority — with one frame the preset IS the movement, with two the
+ * endpoints define the travel and the preset only shapes it.
+ */
+const SINGLE_FRAME_MOTIONS = [
+  'push_in', 'pull_out',
+  'pan_left', 'pan_right',
+  'tilt_up', 'tilt_down',
+  'orbit_left', 'orbit_right',
+]
+const TWO_FRAME_MOTIONS = ['linear', 'ease', 'accelerate', 'hold_then_move']
+
 function serviceClient() {
   return createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -117,6 +130,32 @@ export async function PATCH(
         { error: 'A clip needs two different photos to travel between.' },
         { status: 400 }
       )
+    }
+
+    /**
+     * Keep the preset in the set its frame count allows.
+     *
+     * The two sets share no keys, and a <select> whose value matches none of
+     * its options silently displays the FIRST one. So a slot carrying 'ease'
+     * with no end frame renders as "Push in" while the database says 'ease' —
+     * and the worker, seeing a two-frame preset on a one-frame job, falls back
+     * to its own default. The control, the row and the render all disagreed,
+     * which reads as the two menus being wired up backwards.
+     *
+     * It is reachable without touching the camera control at all: switching a
+     * clip to a still clears its end frame, and switching back leaves the
+     * two-frame preset behind on a slot that now has one frame.
+     *
+     * Normalised here rather than in the inspector because every path that can
+     * change the frame count comes through this route.
+     */
+    const nextHasEnd = Boolean(nextEnd)
+    const allowed = nextHasEnd ? TWO_FRAME_MOTIONS : SINGLE_FRAME_MOTIONS
+    const nextMotion =
+      'camera_motion' in update ? update.camera_motion : slot.camera_motion
+
+    if (!nextMotion || !allowed.includes(nextMotion as string)) {
+      update.camera_motion = nextHasEnd ? 'ease' : 'push_in'
     }
 
     if (Object.keys(update).length === 0) {

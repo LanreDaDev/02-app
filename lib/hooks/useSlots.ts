@@ -97,7 +97,13 @@ export function useSlots(projectId: string) {
         const body = await res.json().catch(() => ({}))
         throw new Error(body.error ?? 'Could not add a clip')
       }
-      const slot = (await res.json()) as SlotWithTakes
+      // The route answers { slot }, not the slot. Unwrapping the envelope is
+      // not a tidy-up: reading it as the slot gave every new card an undefined
+      // id, so selecting it addressed /api/slots/undefined and every edit came
+      // back "Clip not found" — on a card sitting right there in the rail.
+      const { slot } = (await res.json()) as { slot: SlotWithTakes }
+      if (!slot?.id) throw new Error('Could not add a clip')
+
       // Insert locally rather than refetching: the rail should show the card
       // the moment it is clicked, not a network round-trip later.
       upsertSlot({ ...slot, takes: [], activeTake: null, state: 'draft' })
