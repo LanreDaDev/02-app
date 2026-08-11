@@ -141,7 +141,10 @@ export async function POST(request: Request) {
         .order('position', { ascending: true }),
       db
         .from('clip_jobs')
-        .select('id, slot_id, order_index, duration_seconds, mux_playback_id')
+        // Not order_index: it is vestigial from the derived model (see
+        // migration 021) and this route orders by slots.position or the saved
+        // composition. Selecting it kept a dead column looking load-bearing.
+        .select('id, slot_id, duration_seconds, mux_playback_id')
         .eq('project_id', projectId)
         .eq('is_current', true)
         .eq('status', 'succeeded'),
