@@ -275,14 +275,28 @@ export default function EditorPage() {
       <main className="grid min-h-0 grid-cols-[minmax(0,1fr)_340px]">
         <section className="flex min-h-0 flex-col">
           <div className="flex min-h-0 flex-1 items-center justify-center p-6">
-            <div className={cn("w-full", isVertical ? "max-w-[300px]" : "max-w-[760px]")}>
-              <RemotionPlayer ref={playerRef} isVertical={isVertical} />
-            </div>
+            {storeClips.length === 0 ? (
+              // The void around the player is intentional; an unexplained black
+              // rectangle is not. Say what to do next.
+              <div className="max-w-[280px] text-center">
+                <p className="text-[15px] text-foreground">Nothing to play yet</p>
+                <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted-foreground">
+                  Add a clip and generate it. It will show up here and on the
+                  timeline below.
+                </p>
+              </div>
+            ) : (
+              <div className={cn("w-full", isVertical ? "max-w-[300px]" : "max-w-[760px]")}>
+                <RemotionPlayer ref={playerRef} isVertical={isVertical} />
+              </div>
+            )}
           </div>
 
-          <div className="flex-none px-6 pb-4">
-            <TimelineControls playerRef={playerRef} />
-          </div>
+          {storeClips.length > 0 && (
+            <div className="flex-none px-6 pb-4">
+              <TimelineControls playerRef={playerRef} />
+            </div>
+          )}
 
           {error && (
             <div className="mx-6 mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive">
@@ -301,11 +315,22 @@ export default function EditorPage() {
         />
       </main>
 
-      {/* Timeline — the workbench, inverted to light inside the dark shell. */}
-      <div className="light col-span-full border-t border-border bg-background text-foreground">
-        <div className="p-3">
-          <TimelineTrack playerRef={playerRef} onRegen={handleGenerate} />
-        </div>
+      {/* Timeline — the workbench, inverted to light inside the dark shell.
+          Fixed height rather than auto: the track renders nothing until a clip
+          exists, so an auto row collapsed to a sliver and then shoved the stage
+          upward the moment the first take landed. */}
+      <div className="light col-span-full h-[188px] border-t border-border bg-background text-foreground">
+        {storeClips.length === 0 ? (
+          <div className="flex h-full items-center justify-center">
+            <p className="text-[12.5px] text-muted-foreground">
+              Clips appear here as they finish, in the order you arrange them.
+            </p>
+          </div>
+        ) : (
+          <div className="h-full overflow-y-auto p-3">
+            <TimelineTrack playerRef={playerRef} onRegen={handleGenerate} />
+          </div>
+        )}
       </div>
     </div>
   );

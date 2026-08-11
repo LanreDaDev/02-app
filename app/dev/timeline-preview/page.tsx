@@ -216,6 +216,7 @@ export default function TimelinePreviewPage() {
       {/* Third surface on the same selection. Edits go to the store rather than
           the network so the harness stays offline — the real page hands
           patchSlot in here instead. */}
+      <div className="w-[340px] shrink-0">
       <Inspector
         uploads={MOCK_PHOTOS}
         extractedFrames={[]}
@@ -238,6 +239,7 @@ export default function TimelinePreviewPage() {
         onGenerate={(slotId) => console.log("generate requested for", slotId)}
         costTokens={400}
       />
+      </div>
     </div>
   )
 }

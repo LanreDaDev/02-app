@@ -52,7 +52,7 @@ export function Inspector({
 
   if (!slot) {
     return (
-      <aside className="flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-card">
+      <aside className="flex h-full w-full min-w-0 shrink-0 flex-col border-l border-border bg-card">
         <div className="mt-10 px-6 text-center">
           <p className="text-sm text-foreground">Nothing selected</p>
           <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
