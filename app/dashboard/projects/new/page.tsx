@@ -178,7 +178,30 @@ export default function NewProjectPage() {
     }
     setConfirming(true);
     setError(null);
-    router.push(`/dashboard/projects/${projectId}`);
+
+    // Leaving 'draft' is what lets the editor open this project at all.
+    //
+    // The editor treats 'draft' as "hasn't finished uploading yet" and sends
+    // such a project straight back here to resume. Nothing ever moved a project
+    // off 'draft' — the batch step that used to do it was removed with the slots
+    // model and this handler kept only the navigation — so every project ever
+    // created bounced: upload, Create My Video, editor, back to this page with
+    // ?resume=. There was no way through to the editor at all.
+    const { createClient } = await import("@/lib/supabase/client");
+    const { error: statusError } = await createClient()
+      .from("projects")
+      .update({ status: "editing" })
+      .eq("id", projectId);
+
+    if (statusError) {
+      setError("Could not open the editor. Please try again.");
+      setConfirming(false);
+      return;
+    }
+
+    // Straight to the editor rather than through /dashboard/projects/[id],
+    // which only exists now to redirect here.
+    router.push(`/editor/${projectId}`);
   };
 
   const allUploads = Object.values(uploads);
