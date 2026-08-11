@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { Film, Image as ImageIcon, Plus, AlertCircle } from 'lucide-react'
 import { useEditorStore } from '@/lib/stores/useEditorStore'
 import { cn } from '@/lib/utils'
@@ -57,6 +58,15 @@ export function SequenceRail({
 
   const photoById = new Map(photos.map((p) => [p.id, p]))
 
+  // Walking the sequence with the arrow keys selects cards faster than the rail
+  // scrolls, so the selection has to bring itself into view. `nearest` keeps a
+  // card that is already visible exactly where it is, rather than yanking the
+  // list on every press.
+  const selectedRef = useRef<HTMLLIElement>(null)
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [selectedSlotId])
+
   return (
     <aside className="flex h-full min-h-0 w-[320px] shrink-0 flex-col border-r border-border bg-card">
       {/* Add clip is pinned at the top, with the primary action above the list
@@ -89,7 +99,7 @@ export function SequenceRail({
         ) : (
           <ul className="flex flex-col gap-1.5">
             {slots.map((slot, i) => (
-              <li key={slot.id}>
+              <li key={slot.id} ref={slot.id === selectedSlotId ? selectedRef : undefined}>
                 <SlotCard
                   slot={slot}
                   index={i}

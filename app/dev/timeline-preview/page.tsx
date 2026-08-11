@@ -21,6 +21,7 @@ import { FPS } from "@/lib/remotion/constants"
 import type { SlotKind, SlotState, SlotTake, SlotWithTakes } from "@/lib/types/database"
 import type { EditorPhoto } from "@/lib/hooks/usePhotos"
 import { deriveSlotState } from "@/lib/editor/slotState"
+import { useEditorShortcuts } from "@/lib/hooks/useEditorShortcuts"
 
 /** Inline SVG so nothing depends on the network or a live Mux asset. */
 function swatch(label: string, hue: number) {
@@ -183,6 +184,8 @@ export default function TimelinePreviewPage() {
   useEffect(() => {
     setAspectRatio(vertical ? "9:16" : "16:9")
   }, [vertical, setAspectRatio])
+
+  useEditorShortcuts({ playerRef })
 
   return (
     // Fixed viewport height with the scroll inside each column: the rail has to

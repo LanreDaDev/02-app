@@ -10,6 +10,7 @@ import { useRenderStatus } from "@/lib/hooks/useRenderStatus";
 import { useCompositionAutosave } from "@/lib/hooks/useCompositionAutosave";
 import { useSlots } from "@/lib/hooks/useSlots";
 import { usePhotos } from "@/lib/hooks/usePhotos";
+import { useEditorShortcuts } from "@/lib/hooks/useEditorShortcuts";
 import { useTimelineStore } from "@/lib/stores/useTimelineStore";
 import { useEditorStore } from "@/lib/stores/useEditorStore";
 import { RemotionPlayer, type RemotionPlayerHandle } from "@/components/timeline/RemotionPlayer";
@@ -57,6 +58,14 @@ export default function EditorPage() {
 
   const { render } = useRenderStatus(projectId, exporting);
   useCompositionAutosave(projectId, !loading && !exporting);
+
+  // Down-arrow walks the sequence. Off until the project has loaded, so a
+  // keypress during load can't select a slot that is about to be replaced.
+  useEditorShortcuts({
+    playerRef,
+    onGenerate: handleGenerate,
+    enabled: !loading,
+  });
 
   const selectedSlot = slots.find((s) => s.id === selectedSlotId) ?? null;
   const isVertical = aspectRatio === "9:16";
