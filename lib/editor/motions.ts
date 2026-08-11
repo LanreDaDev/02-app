@@ -67,6 +67,22 @@ export function defaultMotionFor(hasEndFrame: boolean) {
 export const CLIP_DURATIONS: ClipDuration[] = [4, 6, 8]
 
 /**
+ * How long the shot holds, named rather than numbered.
+ *
+ * The agent is a listing agent, not an editor. "4s" is a spec, not a choice —
+ * it says what the system does instead of what they get. The word says how the
+ * shot will feel and the number stays beside it, the same way the aggression
+ * slider names its zone and still shows its value.
+ *
+ * Ordered and obvious on sight: no legend, no learning.
+ */
+export const CLIP_DURATION_LABELS: Record<ClipDuration, string> = {
+  4: 'Short',
+  6: 'Medium',
+  8: 'Long',
+}
+
+/**
  * What a length costs, for labelling a button before it is pressed.
  *
  * Mirrors TOKENS_PER_SECOND, which lives in lib/tokens.ts with the service

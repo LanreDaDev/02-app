@@ -6,6 +6,7 @@ import { useEditorStore } from '@/lib/stores/useEditorStore'
 import { cn } from '@/lib/utils'
 import {
   CLIP_DURATIONS,
+  CLIP_DURATION_LABELS,
   STILL_MOTION_LABELS,
   aggressionZone,
   defaultMotionFor,
@@ -220,7 +221,10 @@ export function Inspector({
               </div>
             </Field>
 
-            <Field label="Length">
+            <Field
+              label="Length"
+              hint="Short suits most rooms."
+            >
               <div className="flex gap-1.5">
                 {CLIP_DURATIONS.map((d) => (
                   <button
@@ -228,17 +232,28 @@ export function Inspector({
                     type="button"
                     onClick={() => void patch({ durationSeconds: d })}
                     aria-pressed={slot.duration_seconds === d}
+                    aria-label={`${CLIP_DURATION_LABELS[d]}, ${d} seconds`}
                     className={cn(
-                      'flex-1 rounded-md border py-1.5 font-mono text-[12px] tabular-nums transition-colors',
+                      'flex flex-1 flex-col items-center gap-0.5 rounded-md border py-1.5 transition-colors',
                       slot.duration_seconds === d
                         ? 'border-warning bg-warning/10 text-foreground'
                         : 'border-border text-muted-foreground hover:bg-muted'
                     )}
                   >
-                    {d}s
+                    <span className="text-[12px] leading-none">
+                      {CLIP_DURATION_LABELS[d]}
+                    </span>
+                    {/* The number stays: runtime is the sum of these, and the
+                        agent should be able to see where it comes from. */}
+                    <span className="font-mono text-[10px] leading-none tabular-nums opacity-60">
+                      {d}s
+                    </span>
                   </button>
                 ))}
               </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                Longer holds the screen — worth it on the exterior and the view.
+              </p>
             </Field>
           </>
         )}
