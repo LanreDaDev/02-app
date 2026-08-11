@@ -111,7 +111,7 @@ function mockSlot(
     name: opts.name ?? `Clip ${i + 1}`,
     kind,
     position: i,
-    start_photo_id: opts.state === "draft" ? null : `mock-photo-${i}`,
+    start_photo_id: opts.state === "draft" ? null : `mock-photo-${i % 6}`,
     // Every other generated slot travels between two frames, so the card's
     // one-vs-two thumbnail treatment is visible without clicking anything.
     end_photo_id: kind === "generated" && i % 2 === 1 ? `mock-photo-${(i + 2) % 6}` : null,
@@ -135,6 +135,10 @@ function mockSlot(
 // inside a longer source so there's real headroom to trim out to.
 const DURATIONS = [4, 2.5, 6, 3.25]
 
+/** The still at the end of the sequence — slot index, hold, and movement. */
+const STILL_INDEX = DURATIONS.length + 3
+const STILL_SECONDS = 3
+
 export default function TimelinePreviewPage() {
   if (process.env.NODE_ENV === "production") notFound()
 
@@ -147,9 +151,10 @@ export default function TimelinePreviewPage() {
   const [vertical, setVertical] = useState(false)
 
   useEffect(() => {
-    setClips(
-      DURATIONS.map((sec, i) => ({
+    setClips([
+      ...DURATIONS.map((sec, i) => ({
         id: `mock-take-${i}`,
+        kind: "video" as const,
         // A clip is a TAKE and carries the slot it belongs to. Selection is the
         // slot's, so without this the timeline can't highlight or regenerate —
         // which is exactly what a harness for this should be exercising.
@@ -160,8 +165,23 @@ export default function TimelinePreviewPage() {
         durationInFrames: Math.round(SOURCE_SECONDS * FPS),
         inFrame: 0,
         outFrame: Math.round(sec * FPS),
-      }))
-    )
+      })),
+      // A still is a first-class item in the composition, not a ghost. It has
+      // no take, no source to trim against and no regenerate — the whole point
+      // of putting one in the harness is that all three read correctly.
+      {
+        id: `still:mock-slot-${STILL_INDEX}`,
+        kind: "still" as const,
+        slotId: `mock-slot-${STILL_INDEX}`,
+        src: MOCK_PHOTOS[STILL_INDEX % MOCK_PHOTOS.length].s3_url,
+        stillMotion: "zoom_in" as const,
+        orderIndex: DURATIONS.length,
+        thumbnail: MOCK_PHOTOS[STILL_INDEX % MOCK_PHOTOS.length].s3_url,
+        durationInFrames: Math.round(STILL_SECONDS * FPS),
+        inFrame: 0,
+        outFrame: Math.round(STILL_SECONDS * FPS),
+      },
+    ])
   }, [setClips])
 
   // Mock slots for the rail, one per take plus a still and a draft so the card
@@ -177,7 +197,12 @@ export default function TimelinePreviewPage() {
       mockSlot(DURATIONS.length, { state: "running", name: "Back garden" }),
       mockSlot(DURATIONS.length + 1, { state: "draft", name: "Hallway" }),
       mockSlot(DURATIONS.length + 2, { state: "failed", name: "Loft" }),
-      mockSlot(DURATIONS.length + 3, { state: "ready", name: "Front elevation", kind: "still" }),
+      mockSlot(STILL_INDEX, {
+        state: "ready",
+        name: "Front elevation",
+        kind: "still",
+        seconds: STILL_SECONDS,
+      }),
     ])
   }, [setSlots])
 

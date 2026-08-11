@@ -1,7 +1,7 @@
 "use client"
 
 import { useRef } from "react"
-import { RotateCcw, GripVertical } from "lucide-react"
+import { RotateCcw, GripVertical, Image as ImageIcon } from "lucide-react"
 import { FPS } from "@/lib/remotion/constants"
 import { cn } from "@/lib/utils"
 import type { TimelineClipProps } from "@/lib/remotion/types"
@@ -34,7 +34,17 @@ export function TimelineClipBlock({
 
   const visibleFrames = clip.outFrame - clip.inFrame
   const width = (visibleFrames / FPS) * pxPerSecond
-  const isTrimmed = clip.inFrame > 0 || clip.outFrame < clip.durationInFrames
+
+  /**
+   * A still has no source to trim against and nothing to regenerate.
+   *
+   * Its length is the hold, which lives on the slot and is set in the inspector.
+   * Offering a trim handle here would let the timeline and the inspector print
+   * different numbers for the same shot, and there is no footage either side of
+   * the edge to justify the gesture in the first place.
+   */
+  const isStill = clip.kind === "still"
+  const isTrimmed = !isStill && (clip.inFrame > 0 || clip.outFrame < clip.durationInFrames)
 
   /**
    * Drag a clip edge to trim.
@@ -120,7 +130,9 @@ export function TimelineClipBlock({
       ref={elRef}
       role="button"
       tabIndex={0}
-      aria-label={`Clip ${index + 1}, ${(visibleFrames / FPS).toFixed(1)} seconds`}
+      aria-label={`${isStill ? "Still" : "Clip"} ${index + 1}, ${(
+        visibleFrames / FPS
+      ).toFixed(1)} seconds`}
       aria-pressed={isActive}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -152,8 +164,10 @@ export function TimelineClipBlock({
 
       <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/10 to-transparent" />
 
-      <span className="absolute left-1.5 top-1.5 rounded bg-black/65 px-1.5 py-0.5 font-mono text-[10px] leading-none text-white tabular-nums">
+      <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded bg-black/65 px-1.5 py-0.5 font-mono text-[10px] leading-none text-white tabular-nums">
         {index + 1}
+        {/* Says why this block has no handles, without a tooltip to hunt for. */}
+        {isStill && <ImageIcon className="size-2.5" aria-hidden />}
       </span>
 
       {isTrimmed && (
@@ -169,7 +183,7 @@ export function TimelineClipBlock({
         </span>
       )}
 
-      {onRegen && isActive && width > 70 && (
+      {onRegen && !isStill && isActive && width > 70 && (
         <button
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -185,9 +199,13 @@ export function TimelineClipBlock({
       )}
 
       {/* Trim handles. Always present for pointer/keyboard, visible on hover or
-          when the clip is selected. */}
-      <TrimHandle side="left" visible={isActive} onPointerDown={(e) => startTrim("in", e)} />
-      <TrimHandle side="right" visible={isActive} onPointerDown={(e) => startTrim("out", e)} />
+          when the clip is selected. Never on a still — see isStill above. */}
+      {!isStill && (
+        <>
+          <TrimHandle side="left" visible={isActive} onPointerDown={(e) => startTrim("in", e)} />
+          <TrimHandle side="right" visible={isActive} onPointerDown={(e) => startTrim("out", e)} />
+        </>
+      )}
     </div>
   )
 }

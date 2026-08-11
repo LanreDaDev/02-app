@@ -88,6 +88,9 @@ export function clipFromServer(clip: {
   slotId?: string
   durationSec?: number | null
   thumbnail?: string | null
+  /** Absent means video — the only kind that existed before stills rendered. */
+  kind?: TimelineClipProps['kind']
+  stillMotion?: TimelineClipProps['stillMotion']
 }): TimelineClipProps {
   const frames = clip.durationSec
     ? Math.round(clip.durationSec * FPS)
@@ -95,10 +98,12 @@ export function clipFromServer(clip: {
 
   return {
     id: clip.id,
+    kind: clip.kind ?? 'video',
     src: clip.src,
     orderIndex: clip.orderIndex,
     slotId: clip.slotId,
     thumbnail: clip.thumbnail ?? null,
+    stillMotion: clip.stillMotion,
     durationInFrames: frames,
     inFrame: 0,
     outFrame: frames,

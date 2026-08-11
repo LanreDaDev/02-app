@@ -21,6 +21,7 @@ import { Inspector } from "@/components/editor/Inspector";
 import { displayTokensFor } from "@/lib/editor/motions";
 import { runtimeSeconds } from "@/lib/editor/runtime";
 import { FPS } from "@/lib/remotion/constants";
+import type { StillMotion } from "@/lib/types/database";
 import { cn } from "@/lib/utils";
 
 /**
@@ -130,29 +131,42 @@ export default function EditorPage() {
     const res = await fetch(`/api/generate/${projectId}`);
     if (!res.ok) return;
     const data = await res.json();
-    if (Array.isArray(data.clips)) {
-      setClips(
-        data.clips.map(
-          (c: {
-            id: string;
-            slotId?: string;
-            url: string;
-            durationSeconds?: number;
-            orderIndex?: number;
-            thumbnail?: string | null;
-          }, i: number) => ({
+    if (!Array.isArray(data.clips)) return;
+
+    type ClipPayload = {
+      id: string;
+      kind?: "video" | "still";
+      slotId?: string;
+      src: string | null;
+      stillMotion?: StillMotion | null;
+      durationSeconds?: number;
+      playable?: boolean;
+      thumbnail?: string | null;
+    };
+
+    setClips(
+      (data.clips as ClipPayload[])
+        // The store IS the composition. A take that is still encoding has no
+        // URL yet, and putting it here would hand Remotion a broken source —
+        // it stays a ghost on the timeline until Mux hands back a playback ID.
+        .filter((c) => c.playable && c.src)
+        .map((c, i) => {
+          const frames = Math.round((c.durationSeconds ?? 4) * FPS);
+          return {
             id: c.id,
+            kind: c.kind ?? "video",
             slotId: c.slotId,
-            src: c.url,
-            orderIndex: c.orderIndex ?? i,
+            src: c.src as string,
+            stillMotion: c.stillMotion ?? undefined,
+            // Renumbered after the filter, so the indexes are contiguous.
+            orderIndex: i,
             thumbnail: c.thumbnail ?? null,
-            durationInFrames: Math.round((c.durationSeconds ?? 4) * FPS),
+            durationInFrames: frames,
             inFrame: 0,
-            outFrame: Math.round((c.durationSeconds ?? 4) * FPS),
-          })
-        )
-      );
-    }
+            outFrame: frames,
+          };
+        })
+    );
   }
 
   async function handleAddSlot() {

@@ -111,7 +111,7 @@ export function Inspector({
   const canGenerate = Boolean(slot.start_photo_id) && !isStill && !generating
 
   return (
-    <aside className="flex h-full w-[300px] shrink-0 flex-col border-l border-border bg-card">
+    <aside className="flex h-full w-full min-w-0 shrink-0 flex-col border-l border-border bg-card">
       <header className="border-b border-border px-4 py-3">
         <input
           value={slot.name}

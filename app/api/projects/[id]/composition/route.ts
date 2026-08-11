@@ -12,7 +12,18 @@ import { FPS, getResolution } from '@/lib/remotion/constants'
  */
 
 export interface CompositionClip {
-  clipJobId: string
+  /**
+   * The take being shown. Null for a still — a still is a photograph the agent
+   * chose, not a job that produced anything.
+   */
+  clipJobId: string | null
+  /**
+   * The slot. Required for stills, since nothing else identifies one. Optional
+   * for takes, and absent on compositions saved before stills could render.
+   */
+  slotId?: string | null
+  /** Absent means video, which is all a composition could hold until now. */
+  kind?: 'video' | 'still'
   orderIndex: number
   inFrame: number
   outFrame: number
@@ -60,21 +71,37 @@ export async function PUT(
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     )
 
-    // Only accept clips that actually belong to this project and are live —
+    // Only accept items that actually belong to this project and are live —
     // this object drives a paid render, so it can't be trusted from the client.
-    const { data: liveClips } = await db
-      .from('clip_jobs')
-      .select('id')
-      .eq('project_id', projectId)
-      .eq('is_current', true)
-      .eq('status', 'succeeded')
+    const [{ data: liveClips }, { data: stillSlots }] = await Promise.all([
+      db
+        .from('clip_jobs')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('is_current', true)
+        .eq('status', 'succeeded'),
+      // A still is live once it has a photo. There is no job to succeed.
+      db
+        .from('slots')
+        .select('id')
+        .eq('project_id', projectId)
+        .eq('kind', 'still')
+        .not('start_photo_id', 'is', null),
+    ])
 
-    const allowed = new Set((liveClips ?? []).map((c) => c.id))
+    const allowedTakes = new Set((liveClips ?? []).map((c) => c.id))
+    const allowedStills = new Set((stillSlots ?? []).map((s) => s.id))
 
     const clips = body.clips
-      .filter((c) => allowed.has(c.clipJobId))
+      .filter((c) =>
+        c.kind === 'still'
+          ? Boolean(c.slotId) && allowedStills.has(c.slotId as string)
+          : Boolean(c.clipJobId) && allowedTakes.has(c.clipJobId as string)
+      )
       .map((c, i) => ({
-        clipJobId: c.clipJobId,
+        clipJobId: c.kind === 'still' ? null : c.clipJobId,
+        slotId: c.slotId ?? null,
+        kind: c.kind === 'still' ? ('still' as const) : ('video' as const),
         orderIndex: i,
         inFrame: Math.max(0, Math.floor(c.inFrame)),
         outFrame: Math.max(1, Math.floor(c.outFrame)),

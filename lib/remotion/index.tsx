@@ -18,6 +18,7 @@ const defaultProps: CompositionProps = {
   clips: [
     {
       id: 'preview-1',
+      kind: 'video',
       src: '/dev-samples/clip0.mp4',
       durationInFrames: DEFAULT_CLIP_DURATION_FRAMES,
       inFrame: 0,
@@ -26,6 +27,7 @@ const defaultProps: CompositionProps = {
     },
     {
       id: 'preview-2',
+      kind: 'video',
       src: '/dev-samples/clip1.mp4',
       durationInFrames: DEFAULT_CLIP_DURATION_FRAMES,
       inFrame: 0,

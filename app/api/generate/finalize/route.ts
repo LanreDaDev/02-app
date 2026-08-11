@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createServiceClient } from '@supabase/supabase-js'
 import { renderMediaOnLambda, type AwsRegion } from '@remotion/lambda/client'
 import { muxMp4Url } from '@/lib/mux'
+import { getDownloadPresignedUrl } from '@/lib/aws/s3'
 import { FPS, getResolution } from '@/lib/remotion/constants'
 import type { StoredComposition } from '@/app/api/projects/[id]/composition/route'
 
@@ -44,6 +45,25 @@ const MAX_LAMBDAS = parseInt(process.env.REMOTION_MAX_LAMBDAS || '3', 10)
 
 /** Remotion requires at least 4 frames per invocation. */
 const MIN_FRAMES_PER_LAMBDA = 4
+
+/**
+ * How long a still's photo URL has to stay good.
+ *
+ * Lambda fetches it during the render, which is minutes away at worst and can
+ * sit in a queue first. Six hours costs nothing and removes the failure mode
+ * where a slow render finishes against an expired signature.
+ */
+const PHOTO_URL_TTL_SECONDS = 6 * 60 * 60
+
+/** One item of the render, resolved from either the saved edit or rail order. */
+interface OrderedItem {
+  clipJobId: string | null
+  slotId: string | null
+  kind: 'video' | 'still'
+  orderIndex: number
+  inFrame: number
+  outFrame: number
+}
 
 function framesPerLambdaFor(durationInFrames: number): number {
   return Math.max(MIN_FRAMES_PER_LAMBDA, Math.ceil(durationInFrames / MAX_LAMBDAS))
@@ -110,22 +130,52 @@ export async function POST(request: Request) {
       })
     }
 
-    // Build the render input from live clips joined to the saved edit. The DB is
-    // the authority on which clips exist and their playback URLs; the saved
+    // Build the render input from live slots joined to the saved edit. The DB is
+    // the authority on what exists and where its media lives; the saved
     // composition is the authority on order and trim.
-    const { data: clipJobs } = await db
-      .from('clip_jobs')
-      .select('id, order_index, mux_playback_id')
-      .eq('project_id', projectId)
-      .eq('is_current', true)
-      .eq('status', 'succeeded')
-      .order('order_index', { ascending: true })
+    const [{ data: slots }, { data: clipJobs }] = await Promise.all([
+      db
+        .from('slots')
+        .select('id, kind, position, start_photo_id, hold_duration_seconds, still_motion')
+        .eq('project_id', projectId)
+        .order('position', { ascending: true }),
+      db
+        .from('clip_jobs')
+        .select('id, slot_id, order_index, duration_seconds, mux_playback_id')
+        .eq('project_id', projectId)
+        .eq('is_current', true)
+        .eq('status', 'succeeded'),
+    ])
 
     const playable = (clipJobs ?? []).filter((c) => c.mux_playback_id)
+    const takeById = new Map(playable.map((c) => [c.id, c]))
+    const takeBySlot = new Map(playable.map((c) => [c.slot_id, c]))
 
-    if (playable.length === 0) {
+    // Stills render from the photograph itself. Lambda fetches this URL, so it
+    // has to outlive the render — hence a much longer life than the editor's.
+    const stillSlots = (slots ?? []).filter((s) => s.kind === 'still' && s.start_photo_id)
+    const stillSrc = new Map<string, string>()
+
+    if (stillSlots.length > 0) {
+      const { data: photos } = await db
+        .from('photos')
+        .select('id, s3_key')
+        .in('id', stillSlots.map((s) => s.start_photo_id as string))
+
+      const keyByPhoto = new Map((photos ?? []).map((p) => [p.id, p.s3_key]))
+
+      await Promise.all(
+        stillSlots.map(async (s) => {
+          const key = keyByPhoto.get(s.start_photo_id as string)
+          if (!key) return
+          stillSrc.set(s.id, await getDownloadPresignedUrl(key, PHOTO_URL_TTL_SECONDS))
+        })
+      )
+    }
+
+    if (playable.length === 0 && stillSrc.size === 0) {
       return NextResponse.json(
-        { error: 'No finished clips to render yet.' },
+        { error: 'Nothing to render yet — no finished clips and no stills.' },
         { status: 409 }
       )
     }
@@ -133,17 +183,56 @@ export async function POST(request: Request) {
     const saved = project.composition as StoredComposition | null
     const resolution = getResolution((project.aspect_ratio as '16:9' | '9:16') || '16:9')
 
-    const byId = new Map(playable.map((c) => [c.id, c]))
-    const ordered =
-      saved?.clips?.length
-        ? saved.clips.filter((c) => byId.has(c.clipJobId))
-        : // Never edited — render every clip whole, in generation order.
-          playable.map((c) => ({
-            clipJobId: c.id,
-            orderIndex: c.order_index,
-            inFrame: 0,
-            outFrame: Math.round(4 * FPS),
+    const slotById = new Map((slots ?? []).map((s) => [s.id, s]))
+
+    const ordered: OrderedItem[] = saved?.clips?.length
+      ? saved.clips
+          .filter((c) =>
+            c.kind === 'still'
+              ? Boolean(c.slotId) && stillSrc.has(c.slotId as string)
+              : Boolean(c.clipJobId) && takeById.has(c.clipJobId as string)
+          )
+          .map((c) => ({
+            clipJobId: c.clipJobId ?? null,
+            slotId: c.slotId ?? null,
+            // Compositions saved before stills existed carry no kind at all,
+            // and everything in them is a take.
+            kind: c.kind === 'still' ? ('still' as const) : ('video' as const),
+            orderIndex: c.orderIndex,
+            inFrame: c.inFrame,
+            outFrame: c.outFrame,
           }))
+      : // Never edited — render everything whole, in rail order.
+        (slots ?? []).flatMap((slot): OrderedItem[] => {
+          if (slot.kind === 'still') {
+            if (!stillSrc.has(slot.id)) return []
+            return [
+              {
+                clipJobId: null,
+                slotId: slot.id,
+                kind: 'still' as const,
+                orderIndex: slot.position,
+                inFrame: 0,
+                outFrame: Math.round(slot.hold_duration_seconds * FPS),
+              },
+            ]
+          }
+
+          const take = takeBySlot.get(slot.id)
+          if (!take) return []
+          return [
+            {
+              clipJobId: take.id,
+              slotId: slot.id,
+              kind: 'video' as const,
+              orderIndex: slot.position,
+              inFrame: 0,
+              // The take's own length. Assuming 4s here truncated every 6- and
+              // 8-second clip in a project that was never manually trimmed.
+              outFrame: Math.round((take.duration_seconds ?? 4) * FPS),
+            },
+          ]
+        })
 
     if (ordered.length === 0) {
       return NextResponse.json(
@@ -153,10 +242,26 @@ export async function POST(request: Request) {
     }
 
     const clips = ordered.map((c) => {
-      const job = byId.get(c.clipJobId)!
       const frames = c.outFrame - c.inFrame
+
+      if (c.kind === 'still') {
+        const slot = slotById.get(c.slotId as string)
+        return {
+          id: `still:${c.slotId}`,
+          kind: 'still' as const,
+          src: stillSrc.get(c.slotId as string) as string,
+          stillMotion: slot?.still_motion ?? 'none',
+          orderIndex: c.orderIndex,
+          inFrame: c.inFrame,
+          outFrame: c.outFrame,
+          durationInFrames: frames,
+        }
+      }
+
+      const job = takeById.get(c.clipJobId as string)!
       return {
-        id: c.clipJobId,
+        id: c.clipJobId as string,
+        kind: 'video' as const,
         src: muxMp4Url(job.mux_playback_id as string),
         orderIndex: c.orderIndex,
         inFrame: c.inFrame,

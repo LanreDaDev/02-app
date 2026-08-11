@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 import { TimelineClipBlock } from "./TimelineClip"
 import type { RemotionPlayerHandle } from "./RemotionPlayer"
 import { runtimeSeconds } from "@/lib/editor/runtime"
-import type { SlotState } from "@/lib/types/database"
+import type { SlotKind, SlotState } from "@/lib/types/database"
 
 const MIN_PPS = 20
 const MAX_PPS = 260
@@ -300,9 +300,10 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
                   onTrim={(inF, outF) => setTrim(item.clip!.id, inF, outF)}
                   onReorder={handleReorder}
                   // The slot, not the take — regenerating asks for another result
-                  // for the same clip, not a copy of an existing one.
+                  // for the same clip, not a copy of an existing one. A still
+                  // has nothing to regenerate.
                   onRegen={
-                    onRegen && item.clip.slotId
+                    onRegen && item.clip.slotId && item.clip.kind !== "still"
                       ? () => onRegen(item.clip!.slotId!)
                       : undefined
                   }
@@ -312,6 +313,7 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
                   key={item.key}
                   name={item.slot!.name}
                   state={item.slot!.state}
+                  kind={item.slot!.kind}
                   seconds={item.seconds}
                   pxPerSecond={pxPerSecond}
                   selected={item.slot!.id === selectedSlotId}
@@ -373,16 +375,21 @@ const GHOST_LABEL: Record<SlotState, string> = {
 }
 
 /**
- * A slot with no take yet, holding its place on the spine.
+ * A slot with no media yet, holding its place on the spine.
  *
  * Dashed and unfilled so it never reads as footage, sized by the length the
  * slot is set to. Selectable, because it is still the shot the agent wants to
  * work on — but not trimmable, since there is nothing to trim against. Offering
  * a handle here would promise media that does not exist.
+ *
+ * A still only lands here before it has a photo. Once it does it renders as a
+ * real block, because at that point it genuinely is the finished shot — there
+ * is nothing else coming.
  */
 function GhostBlock({
   name,
   state,
+  kind,
   seconds,
   pxPerSecond,
   selected,
@@ -390,17 +397,23 @@ function GhostBlock({
 }: {
   name: string
   state: SlotState
+  kind: SlotKind
   seconds: number
   pxPerSecond: number
   selected: boolean
   onSelect: () => void
 }) {
+  // "Not generated" is meaningless on a still — nothing was ever going to
+  // generate it. What it is missing is a photograph.
+  const label =
+    kind === "still" && state === "draft" ? "Needs a photo" : GHOST_LABEL[state]
+
   return (
     <button
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      aria-label={`${name}, ${GHOST_LABEL[state]}`}
+      aria-label={`${name}, ${label}`}
       style={{ width: Math.max(seconds * pxPerSecond, 28) }}
       className={cn(
         "group relative h-20 shrink-0 overflow-hidden rounded-md border border-dashed text-left transition-colors",
@@ -422,7 +435,7 @@ function GhostBlock({
             state === "failed" ? "text-destructive" : "text-muted-foreground/70"
           )}
         >
-          {GHOST_LABEL[state]}
+          {label}
         </span>
       </span>
     </button>

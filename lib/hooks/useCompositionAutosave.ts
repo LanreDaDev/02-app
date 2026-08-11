@@ -21,7 +21,11 @@ export function useCompositionAutosave(projectId: string, enabled: boolean) {
     if (!enabled || clips.length === 0) return
 
     const payload = clips.map((c, i) => ({
-      clipJobId: c.id,
+      // A still has no job behind it, so it is identified by its slot. The
+      // server rejects anything that matches neither.
+      clipJobId: c.kind === "still" ? null : c.id,
+      slotId: c.slotId ?? null,
+      kind: c.kind,
       orderIndex: i,
       inFrame: c.inFrame,
       outFrame: c.outFrame,
