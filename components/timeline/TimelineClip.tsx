@@ -13,6 +13,8 @@ interface TimelineClipBlockProps {
   clip: TimelineClipProps
   index: number
   isActive: boolean
+  /** Playback is scoped to another clip, so this one is not in play. */
+  outsideRange?: boolean
   pxPerSecond: number
   onSelect: () => void
   onTrim: (inFrame: number, outFrame: number) => void
@@ -24,6 +26,7 @@ export function TimelineClipBlock({
   clip,
   index,
   isActive,
+  outsideRange,
   pxPerSecond,
   onSelect,
   onTrim,
@@ -146,7 +149,10 @@ export function TimelineClipBlock({
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background",
         isActive
           ? "border-primary ring-2 ring-primary/25"
-          : "border-border hover:border-muted-foreground/40"
+          : "border-border hover:border-muted-foreground/40",
+        // Still fully clickable — dimming says what is playing, not what is
+        // reachable. Clicking one of these is how you switch to it.
+        outsideRange && "opacity-40 hover:opacity-70"
       )}
       style={{ width: Math.max(width, 28) }}
     >

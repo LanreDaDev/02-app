@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils"
 import { TimelineClipBlock } from "./TimelineClip"
 import type { RemotionPlayerHandle } from "./RemotionPlayer"
 import { runtimeSeconds } from "@/lib/editor/runtime"
+import { usePlaybackRange } from "@/lib/hooks/usePlaybackRange"
 import type { SlotKind, SlotState } from "@/lib/types/database"
 
 const MIN_PPS = 20
@@ -35,6 +36,10 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
   const select = useEditorStore((s) => s.select)
   // Slots, not just clips: a slot with no take yet still holds its place.
   const slots = useEditorStore((s) => s.slots)
+
+  // Scoped playback dims everything it is not playing, so the timeline shows
+  // what the player is doing rather than leaving the agent to remember.
+  const { scoped } = usePlaybackRange()
 
   const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PPS)
   const [playhead, setPlayhead] = useState(0)
@@ -287,6 +292,7 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
                   isActive={
                     Boolean(item.clip.slotId) && item.clip.slotId === selectedSlotId
                   }
+                  outsideRange={scoped && item.clip.slotId !== selectedSlotId}
                   pxPerSecond={pxPerSecond}
                   onSelect={() => {
                     select(item.clip!.slotId ?? null)
@@ -317,6 +323,7 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
                   seconds={item.seconds}
                   pxPerSecond={pxPerSecond}
                   selected={item.slot!.id === selectedSlotId}
+                  outsideRange={scoped && item.slot!.id !== selectedSlotId}
                   onSelect={() => select(item.slot!.id)}
                 />
               )
@@ -393,6 +400,7 @@ function GhostBlock({
   seconds,
   pxPerSecond,
   selected,
+  outsideRange,
   onSelect,
 }: {
   name: string
@@ -401,6 +409,7 @@ function GhostBlock({
   seconds: number
   pxPerSecond: number
   selected: boolean
+  outsideRange?: boolean
   onSelect: () => void
 }) {
   // "Not generated" is meaningless on a still — nothing was ever going to
@@ -422,7 +431,8 @@ function GhostBlock({
           : selected
             ? "border-primary bg-primary/5"
             : "border-border bg-muted/40 hover:border-foreground/30",
-        state === "running" && "animate-pulse"
+        state === "running" && "animate-pulse",
+        outsideRange && "opacity-40 hover:opacity-70"
       )}
     >
       <span className="flex h-full flex-col justify-between p-1.5">

@@ -14,6 +14,29 @@ import type { SlotWithTakes } from '@/lib/types/database'
  * one contributes the length it is set to, so the total does not climb as jobs
  * land. A still is exact either way: there is no take for it to be wrong about.
  */
+/**
+ * Where a slot sits in composition time.
+ *
+ * Walks the clips, not the slots: composition frames only advance through media
+ * that exists, so a slot still waiting on its take takes up width on the
+ * timeline but no time in the video. Null when the slot has nothing to play —
+ * which is a real answer, not a failure, and the caller has to say so.
+ */
+export function frameRangeForSlot(
+  clips: TimelineClipProps[],
+  slotId: string | null | undefined
+): { from: number; to: number } | null {
+  if (!slotId) return null
+
+  let from = 0
+  for (const clip of clips) {
+    const length = clip.outFrame - clip.inFrame
+    if (clip.slotId === slotId) return { from, to: from + length }
+    from += length
+  }
+  return null
+}
+
 export function runtimeSeconds(
   slots: SlotWithTakes[],
   clips: TimelineClipProps[]

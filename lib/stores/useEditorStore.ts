@@ -22,11 +22,25 @@ import type { SlotWithTakes } from '@/lib/types/database'
  * `slotId` matches — never by identity of its own.
  */
 
+/**
+ * What the player plays.
+ *
+ * Reviewing a shot and reviewing a sequence are different jobs. Judging whether
+ * the kitchen push-in is too aggressive means watching that four seconds over
+ * and over; judging whether the video flows means watching all of it. Doing the
+ * first with the second's playback — scrub, find it, watch it, scrub back —
+ * is what makes reviewing twenty shots feel like work.
+ */
+export type PlaybackScope = 'clip' | 'video'
+
 interface EditorState {
   slots: SlotWithTakes[]
 
   /** The one selection. A slot id, never a take id. */
   selectedSlotId: string | null
+
+  playbackScope: PlaybackScope
+  setPlaybackScope: (scope: PlaybackScope) => void
 
   setSlots: (slots: SlotWithTakes[]) => void
   /** Insert or replace by id, keeping the list in rail order. */
@@ -46,6 +60,9 @@ const byPosition = (a: SlotWithTakes, b: SlotWithTakes) => a.position - b.positi
 export const useEditorStore = create<EditorState>((set, get) => ({
   slots: [],
   selectedSlotId: null,
+  playbackScope: 'video',
+
+  setPlaybackScope: (playbackScope) => set({ playbackScope }),
 
   setSlots: (slots) =>
     set((s) => {
@@ -85,7 +102,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { slots: next }
     }),
 
-  select: (id) => set({ selectedSlotId: id }),
+  // Deselecting returns to the whole video, because that is what nothing
+  // selected means everywhere else in the editor — the inspector shows the
+  // project, so the player should show the project. "This clip" with no clip
+  // is not a state worth being able to reach.
+  select: (id) =>
+    set((s) => ({
+      selectedSlotId: id,
+      playbackScope: id === null ? 'video' : s.playbackScope,
+    })),
 
   selectedSlot: () => {
     const { slots, selectedSlotId } = get()

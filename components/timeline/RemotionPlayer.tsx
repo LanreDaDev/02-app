@@ -1,9 +1,18 @@
 "use client"
 
 import { Player, type PlayerRef } from "@remotion/player"
-import { useMemo, useRef, useImperativeHandle, forwardRef, useCallback } from "react"
+import {
+  useMemo,
+  useRef,
+  useImperativeHandle,
+  forwardRef,
+  useCallback,
+  useEffect,
+} from "react"
 import { TimelineComposition } from "@/lib/remotion/TimelineComposition"
 import { useTimelineStore } from "@/lib/stores/useTimelineStore"
+import { useEditorStore } from "@/lib/stores/useEditorStore"
+import { usePlaybackRange } from "@/lib/hooks/usePlaybackRange"
 import { FPS, getResolution } from "@/lib/remotion/constants"
 import { cn } from "@/lib/utils"
 
@@ -25,11 +34,43 @@ export const RemotionPlayer = forwardRef<RemotionPlayerHandle, { isVertical: boo
     const playerRef = useRef<PlayerRef>(null)
     const clips = useTimelineStore((s) => s.clips)
     const aspectRatio = useTimelineStore((s) => s.aspectRatio)
+    const selectedSlotId = useEditorStore((s) => s.selectedSlotId)
+
+    const { from, to, scoped, blocked } = usePlaybackRange()
 
     const totalFrames = useMemo(
       () => clips.reduce((acc, c) => acc + (c.outFrame - c.inFrame), 0),
       [clips]
     )
+
+    /**
+     * Land on the clip when the selection moves.
+     *
+     * Keyed to the selection rather than to `from`, because trimming an earlier
+     * clip shifts every later one's start — and having the playhead jump while
+     * you drag a handle three clips away would be its own small horror. Play
+     * state is left alone, so holding down-arrow walks the sequence with each
+     * clip playing in turn, which is the whole gesture.
+     */
+    const fromRef = useRef(from)
+    fromRef.current = from
+
+    useEffect(() => {
+      if (!scoped) return
+      playerRef.current?.seekTo(fromRef.current)
+    }, [scoped, selectedSlotId])
+
+    /**
+     * Stop when the selection has nothing to play.
+     *
+     * Stepping onto a clip that is still generating cannot leave playback
+     * running: with no range to constrain it the player carries on through the
+     * rest of the video, which is the one thing "This clip" promises not to do.
+     * Disabling the play button is not enough — the player was already moving.
+     */
+    useEffect(() => {
+      if (blocked) playerRef.current?.pause()
+    }, [blocked, selectedSlotId])
 
     const compositionProps = useMemo(() => {
       const resolution = getResolution(aspectRatio)
@@ -92,7 +133,13 @@ export const RemotionPlayer = forwardRef<RemotionPlayerHandle, { isVertical: boo
           style={{ width: "100%", height: "100%" }}
           acknowledgeRemotionLicense
           autoPlay={false}
-          loop={false}
+          // Scoped to one clip, it loops. Judging a four-second push-in means
+          // watching it several times, and stopping dead at the end so you can
+          // press play again is the friction this mode exists to remove.
+          // Remotion's outFrame is the last frame shown; ours is one past it.
+          inFrame={scoped ? from : null}
+          outFrame={scoped ? Math.max(from, to - 1) : null}
+          loop={scoped}
           errorFallback={({ error }) => (
             <div className="flex h-full items-center justify-center p-5 text-sm text-destructive">
               Player error: {error.message}

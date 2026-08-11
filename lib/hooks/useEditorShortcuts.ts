@@ -2,6 +2,8 @@
 
 import { useEffect } from 'react'
 import { useEditorStore } from '@/lib/stores/useEditorStore'
+import { useTimelineStore } from '@/lib/stores/useTimelineStore'
+import { frameRangeForSlot } from '@/lib/editor/runtime'
 import type { RemotionPlayerHandle } from '@/components/timeline/RemotionPlayer'
 
 /**
@@ -33,6 +35,25 @@ function isTyping(target: EventTarget | null): boolean {
     tag === 'SELECT' ||
     target.isContentEditable
   )
+}
+
+/**
+ * The same range the transport and the player use, read at keypress time.
+ *
+ * Read rather than subscribed to: this listener is bound once, and closing over
+ * a range would leave the space bar acting on whatever was selected when the
+ * effect last ran.
+ */
+function currentRange(): { from: number; to: number; blocked: boolean } {
+  const { playbackScope, selectedSlotId } = useEditorStore.getState()
+  const { clips } = useTimelineStore.getState()
+  const total = clips.reduce((acc, c) => acc + (c.outFrame - c.inFrame), 0)
+
+  if (playbackScope === 'video') return { from: 0, to: total, blocked: false }
+
+  const range = frameRangeForSlot(clips, selectedSlotId)
+  if (!range) return { from: 0, to: total, blocked: true }
+  return { ...range, blocked: false }
 }
 
 export function useEditorShortcuts({ playerRef, onGenerate, enabled = true }: Options) {
@@ -75,22 +96,27 @@ export function useEditorShortcuts({ playerRef, onGenerate, enabled = true }: Op
           select(null)
           break
 
-        case ' ':
+        case ' ': {
           e.preventDefault()
+          // Playing "this clip" when this clip has no media would quietly play
+          // the whole video instead — the one thing the mode promises not to do.
+          if (currentRange().blocked) break
           playerRef.current?.toggle()
           break
+        }
 
         case 'ArrowLeft':
+        case 'ArrowRight': {
           e.preventDefault()
-          playerRef.current?.seekToFrame(
-            Math.max(0, (playerRef.current?.getCurrentFrame() ?? 0) - 1)
-          )
+          const { from, to, blocked } = currentRange()
+          if (blocked) break
+          const delta = e.key === 'ArrowLeft' ? -1 : 1
+          const frame = (playerRef.current?.getCurrentFrame() ?? 0) + delta
+          // Stepping stays inside whatever is being played, so a frame-by-frame
+          // look at one shot cannot wander into the next one.
+          playerRef.current?.seekToFrame(Math.min(Math.max(frame, from), Math.max(from, to - 1)))
           break
-
-        case 'ArrowRight':
-          e.preventDefault()
-          playerRef.current?.seekToFrame((playerRef.current?.getCurrentFrame() ?? 0) + 1)
-          break
+        }
 
         case 'Enter':
           // ⌘↵ generates the selected slot; plain Enter is rename, which the
