@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Film, Image as ImageIcon, Sparkles, Trash2, X } from 'lucide-react'
+import { Film, Image as ImageIcon, PanelRightClose, Sparkles, Trash2, X } from 'lucide-react'
 import { useEditorStore } from '@/lib/stores/useEditorStore'
 import { useTimelineStore } from '@/lib/stores/useTimelineStore'
 import { runtimeSeconds } from '@/lib/editor/runtime'
@@ -44,6 +44,8 @@ interface InspectorProps {
   costTokens: number
   /** Shown when nothing is selected. The resting state, not an empty one. */
   project?: { title: string; aspectRatio: string }
+  /** Fold the panel away, so the stage can have the width. */
+  onCollapse?: () => void
 }
 
 export function Inspector({
@@ -56,6 +58,7 @@ export function Inspector({
   generating,
   costTokens,
   project,
+  onCollapse,
 }: InspectorProps) {
   const slots = useEditorStore((s) => s.slots)
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId)
@@ -81,7 +84,8 @@ export function Inspector({
   // lands on every time they open the editor.
   if (!slot) {
     return (
-      <aside className="flex h-full w-full min-w-0 shrink-0 flex-col border-l border-border bg-card">
+      <aside className="flex h-full w-full min-w-0 shrink-0 flex-col overflow-hidden border-l border-border bg-card">
+        {onCollapse && <CollapseButton onClick={onCollapse} />}
         <ProjectSettings project={project} slots={slots} />
       </aside>
     )
@@ -114,8 +118,9 @@ export function Inspector({
   const canGenerate = Boolean(slot.start_photo_id) && !isStill && !generating
 
   return (
-    <aside className="flex h-full w-full min-w-0 shrink-0 flex-col border-l border-border bg-card">
-      <header className="border-b border-border px-4 py-3">
+    <aside className="flex h-full w-full min-w-0 shrink-0 flex-col overflow-hidden border-l border-border bg-card">
+      <header className="relative border-b border-border px-4 py-3 pr-10">
+        {onCollapse && <CollapseButton onClick={onCollapse} />}
         <input
           value={slot.name}
           onChange={(e) => void patch({ name: e.target.value })}
@@ -457,6 +462,20 @@ function ProjectSettings({
         )}
       </Group>
     </div>
+  )
+}
+
+function CollapseButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Hide settings"
+      title="Hide settings"
+      className="absolute right-2 top-2.5 z-10 grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <PanelRightClose size={13} />
+    </button>
   )
 }
 

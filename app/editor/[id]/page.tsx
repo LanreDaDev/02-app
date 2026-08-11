@@ -3,7 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Coins, Download } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronUp,
+  Coins,
+  Download,
+  PanelLeft,
+  PanelRight,
+} from "lucide-react";
 
 import { createClient } from "@/lib/supabase/client";
 import { useRenderStatus } from "@/lib/hooks/useRenderStatus";
@@ -66,6 +74,11 @@ export default function EditorPage() {
   const [generating, setGenerating] = useState(false);
   const [addingSlot, setAddingSlot] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // Panel visibility. 320 + 340 of fixed chrome leaves a 1280px laptop about
+  // 600px of stage, which is not enough to judge a shot by.
+  const [railOpen, setRailOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [timelineOpen, setTimelineOpen] = useState(true);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -240,7 +253,10 @@ export default function EditorPage() {
     // Relative so the undo bar can sit over the editor rather than inside one
     // of its three regions — the delete it is holding open belongs to all of
     // them.
-    <div className="relative grid h-full grid-cols-[320px_minmax(0,1fr)] grid-rows-[52px_minmax(0,1fr)_auto]">
+    <div
+      className="relative grid h-full grid-rows-[52px_minmax(0,1fr)_auto]"
+      style={{ gridTemplateColumns: `${railOpen ? "320px" : "44px"} minmax(0,1fr)` }}
+    >
       {/* Top bar */}
       <header className="col-span-full flex items-center gap-4 border-b border-border bg-card px-4">
         <Link
@@ -299,15 +315,34 @@ export default function EditorPage() {
       </header>
 
       {/* Rail */}
-      <SequenceRail
-        onAddSlot={handleAddSlot}
-        adding={addingSlot}
-        readyCount={readyCount}
-        photos={uploads}
-      />
+      {railOpen ? (
+        <SequenceRail
+          onAddSlot={handleAddSlot}
+          adding={addingSlot}
+          readyCount={readyCount}
+          photos={uploads}
+          onCollapse={() => setRailOpen(false)}
+        />
+      ) : (
+        <PanelStrip
+          side="left"
+          label={`Show sequence (${slots.length})`}
+          onClick={() => setRailOpen(true)}
+        />
+      )}
 
-      {/* Stage: player + inspector */}
-      <main className="grid min-h-0 grid-cols-[minmax(0,1fr)_340px]">
+      {/* Stage: player + inspector.
+          grid-rows is not decoration. Without a row constrained to the track,
+          this grid's implicit row is `auto` and sizes to its tallest child —
+          so the inspector grew past the bottom of the screen, its body never
+          scrolled, and the Generate button sat underneath the timeline where
+          it could not be reached or even seen. */}
+      <main
+        className="grid min-h-0 grid-rows-[minmax(0,1fr)] overflow-hidden"
+        style={{
+          gridTemplateColumns: `minmax(0,1fr) ${inspectorOpen ? "340px" : "44px"}`,
+        }}
+      >
         <section className="flex min-h-0 flex-col">
           <div className="flex min-h-0 flex-1 items-center justify-center p-6">
             {storeClips.length === 0 ? (
@@ -340,6 +375,13 @@ export default function EditorPage() {
           )}
         </section>
 
+        {!inspectorOpen ? (
+          <PanelStrip
+            side="right"
+            label="Show settings"
+            onClick={() => setInspectorOpen(true)}
+          />
+        ) : (
         <Inspector
           uploads={uploads}
           extractedFrames={extractedFrames}
@@ -350,28 +392,101 @@ export default function EditorPage() {
           generating={generating}
           costTokens={displayTokensFor(selectedSlot?.duration_seconds ?? 4)}
           project={{ title: projectTitle, aspectRatio }}
+          onCollapse={() => setInspectorOpen(false)}
         />
+        )}
       </main>
 
       {/* Timeline — the workbench, inverted to light inside the dark shell.
           Fixed height rather than auto: the track renders nothing until a clip
           exists, so an auto row collapsed to a sliver and then shoved the stage
-          upward the moment the first take landed. */}
-      <div className="light col-span-full h-[188px] border-t border-border bg-background text-foreground">
-        {storeClips.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
+          upward the moment the first take landed.
+
+          The height has to fit the track, and it did not: the band was 188px
+          around a 201px card, so the blocks were sheared off at the bottom of
+          the screen. Collapsible, because on a laptop this is the difference
+          between a stage worth looking at and a letterbox. */}
+      <div
+        className={cn(
+          "light col-span-full border-t border-border bg-background text-foreground",
+          timelineOpen ? "h-[196px]" : "h-[34px]"
+        )}
+      >
+        {!timelineOpen ? (
+          <button
+            type="button"
+            onClick={() => setTimelineOpen(true)}
+            className="flex h-full w-full items-center justify-center gap-2 text-[11.5px] text-muted-foreground transition-colors hover:bg-muted"
+          >
+            <ChevronUp size={12} />
+            Timeline · {slots.length} {slots.length === 1 ? "clip" : "clips"} ·{" "}
+            {runtimeSec.toFixed(1)}s
+          </button>
+        ) : storeClips.length === 0 ? (
+          <div className="relative flex h-full items-center justify-center">
             <p className="text-[12.5px] text-muted-foreground">
               Clips appear here as they finish, in the order you arrange them.
             </p>
+            <CollapseTimeline onClick={() => setTimelineOpen(false)} />
           </div>
         ) : (
-          <div className="h-full overflow-y-auto p-3">
+          <div className="relative h-full overflow-y-auto p-2">
             <TimelineTrack playerRef={playerRef} onRegen={handleGenerate} />
+            <CollapseTimeline onClick={() => setTimelineOpen(false)} />
           </div>
         )}
       </div>
 
       <UndoBar pending={pendingDelete} windowMs={undoWindowMs} onUndo={undoDelete} />
     </div>
+  );
+}
+
+/**
+ * A closed panel, still visible.
+ *
+ * Collapsing to nothing would leave no way back and no clue there was ever
+ * anything there. 44px keeps the handle where the panel was.
+ */
+function PanelStrip({
+  side,
+  label,
+  onClick,
+}: {
+  side: "left" | "right";
+  label: string;
+  onClick: () => void;
+}) {
+  const Icon = side === "left" ? PanelLeft : PanelRight;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className={cn(
+        "flex h-full w-full flex-col items-center gap-2 bg-card py-3 text-muted-foreground transition-colors hover:text-foreground",
+        side === "left" ? "border-r border-border" : "border-l border-border"
+      )}
+    >
+      <Icon size={14} />
+      <span className="[writing-mode:vertical-rl] text-[11px] tracking-wide">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+function CollapseTimeline({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Hide timeline"
+      title="Hide timeline"
+      className="absolute right-2 top-2 z-10 grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <ChevronDown size={13} />
+    </button>
   );
 }

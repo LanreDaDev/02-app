@@ -225,6 +225,11 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
         </span>
 
         <div className="flex items-center gap-1">
+          {/* Folded up from a footer row. That row cost 28px the band did not
+              have, which sheared the bottom off every clip on screen. */}
+          <span className="mr-2 hidden text-[10.5px] text-muted-foreground lg:inline">
+            Drag edges to trim · drag to reorder · {"⌘"}-scroll to zoom
+          </span>
           <button
             onClick={() => setPxPerSecond((p) => clamp(p / 1.4, MIN_PPS, MAX_PPS))}
             disabled={pxPerSecond <= MIN_PPS}
@@ -340,9 +345,6 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
         </div>
       </div>
 
-      <p className="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
-        Drag clip edges to trim · drag a clip to reorder · {"⌘"}-scroll to zoom
-      </p>
     </div>
   )
 }

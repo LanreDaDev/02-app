@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { Film, Image as ImageIcon, Plus, AlertCircle } from 'lucide-react'
+import { Film, Image as ImageIcon, Plus, AlertCircle, PanelLeftClose } from 'lucide-react'
 import { useEditorStore } from '@/lib/stores/useEditorStore'
 import { cn } from '@/lib/utils'
 import type { EditorPhoto } from '@/lib/hooks/usePhotos'
@@ -27,6 +27,8 @@ interface SequenceRailProps {
   /** Resolves a slot's frame ids to images. The card's thumbnails are the
    *  clearest signal of which kind of slot it is, so they matter. */
   photos?: EditorPhoto[]
+  /** Fold the rail away. The stage is what the agent is judging. */
+  onCollapse?: () => void
 }
 
 const STATE_LABEL: Record<SlotState, string> = {
@@ -51,6 +53,7 @@ export function SequenceRail({
   adding,
   readyCount,
   photos = [],
+  onCollapse,
 }: SequenceRailProps) {
   const slots = useEditorStore((s) => s.slots)
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId)
@@ -72,10 +75,23 @@ export function SequenceRail({
       {/* Add clip is pinned at the top, with the primary action above the list
           rather than below it — the agent reaches for it before scanning. */}
       <header className="flex flex-none flex-col gap-2.5 border-b border-border px-3.5 py-3">
-        <div className="flex items-baseline justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-medium text-foreground">Sequence</h2>
-          <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-            {readyCount ?? 0}/{slots.length} ready
+          <span className="flex items-center gap-2">
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+              {readyCount ?? 0}/{slots.length} ready
+            </span>
+            {onCollapse && (
+              <button
+                type="button"
+                onClick={onCollapse}
+                aria-label="Hide sequence"
+                title="Hide sequence"
+                className="grid size-6 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                <PanelLeftClose size={13} />
+              </button>
+            )}
           </span>
         </div>
         <button
