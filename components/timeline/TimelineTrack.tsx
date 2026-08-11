@@ -8,6 +8,7 @@ import { FPS } from "@/lib/remotion/constants"
 import { cn } from "@/lib/utils"
 import { TimelineClipBlock } from "./TimelineClip"
 import type { RemotionPlayerHandle } from "./RemotionPlayer"
+import type { SlotState } from "@/lib/types/database"
 
 const MIN_PPS = 20
 const MAX_PPS = 260
@@ -31,6 +32,8 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
   // never holds one of its own.
   const selectedSlotId = useEditorStore((s) => s.selectedSlotId)
   const select = useEditorStore((s) => s.select)
+  // Slots, not just clips: a slot with no take yet still holds its place.
+  const slots = useEditorStore((s) => s.slots)
 
   const [pxPerSecond, setPxPerSecond] = useState(DEFAULT_PPS)
   const [playhead, setPlayhead] = useState(0)
@@ -40,7 +43,52 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
     () => clips.reduce((acc, c) => acc + (c.outFrame - c.inFrame), 0),
     [clips]
   )
-  const totalSeconds = totalFrames / FPS
+
+  /**
+   * The spine: every slot in order, as either its ready take or a ghost.
+   *
+   * A slot without a take still occupies the sequence — it is a shot the agent
+   * has decided on. Leaving it off the spine makes the runtime climb every time
+   * a job lands, which reads as a bug rather than as progress.
+   *
+   * Falls back to clips alone when there are no slots, so the composition still
+   * renders if slots have not loaded.
+   */
+  const spine = useMemo(() => {
+    const byId = new Map(clips.map((c, i) => [c.slotId, { clip: c, index: i }]))
+
+    if (slots.length === 0) {
+      return clips.map((clip, index) => ({
+        key: clip.id,
+        seconds: (clip.outFrame - clip.inFrame) / FPS,
+        clip,
+        index,
+        slot: null,
+      }))
+    }
+
+    return slots.map((slot) => {
+      const hit = byId.get(slot.id)
+      const seconds = hit
+        ? (hit.clip.outFrame - hit.clip.inFrame) / FPS
+        : // The estimate. A still is exact — it has no take to be wrong about.
+          slot.kind === 'still'
+          ? slot.hold_duration_seconds
+          : slot.duration_seconds
+      return {
+        key: slot.id,
+        seconds,
+        clip: hit?.clip ?? null,
+        index: hit?.index ?? -1,
+        slot,
+      }
+    })
+  }, [slots, clips])
+
+  const totalSeconds = useMemo(
+    () => spine.reduce((acc, item) => acc + item.seconds, 0),
+    [spine]
+  )
   const trackWidth = totalSeconds * pxPerSecond
 
   // Follow playback rather than polling, so the playhead never drifts.
@@ -50,16 +98,37 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
     return player.onFrame(setPlayhead)
   }, [playerRef, clips.length])
 
+  /**
+   * Composition time only advances through real clips, but ghosts take up width
+   * on the spine. Mapping frames straight to x would drift the playhead further
+   * out of place with every ghost to its left, so both are walked together.
+   */
+  const playheadX = useMemo(() => {
+    let frames = 0
+    let x = 0
+    for (const item of spine) {
+      const w = item.seconds * pxPerSecond
+      if (item.clip) {
+        const clipFrames = item.clip.outFrame - item.clip.inFrame
+        if (playhead < frames + clipFrames) {
+          return x + ((playhead - frames) / clipFrames) * w
+        }
+        frames += clipFrames
+      }
+      x += w
+    }
+    return x
+  }, [spine, playhead, pxPerSecond])
+
   // Keep the playhead on screen while playing.
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
 
-    const x = (playhead / FPS) * pxPerSecond
-    if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 40) {
-      el.scrollTo({ left: Math.max(0, x - el.clientWidth / 2), behavior: "smooth" })
+    if (playheadX < el.scrollLeft || playheadX > el.scrollLeft + el.clientWidth - 40) {
+      el.scrollTo({ left: Math.max(0, playheadX - el.clientWidth / 2), behavior: "smooth" })
     }
-  }, [playhead, pxPerSecond])
+  }, [playheadX])
 
   const seekFromPointer = useCallback(
     (clientX: number) => {
@@ -68,10 +137,27 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
 
       const rect = el.getBoundingClientRect()
       const x = clientX - rect.left + el.scrollLeft
-      const frame = Math.round((x / pxPerSecond) * FPS)
-      playerRef.current?.seekToFrame(Math.max(0, Math.min(frame, totalFrames - 1)))
+
+      // The inverse walk. Clicking a ghost seeks to where it starts — there is
+      // nothing inside it to land on.
+      let frames = 0
+      let acc = 0
+      for (const item of spine) {
+        const w = item.seconds * pxPerSecond
+        if (x < acc + w) {
+          if (!item.clip) return playerRef.current?.seekToFrame(frames)
+          const clipFrames = item.clip.outFrame - item.clip.inFrame
+          const frame = frames + Math.round(((x - acc) / w) * clipFrames)
+          return playerRef.current?.seekToFrame(
+            Math.max(0, Math.min(frame, totalFrames - 1))
+          )
+        }
+        if (item.clip) frames += item.clip.outFrame - item.clip.inFrame
+        acc += w
+      }
+      playerRef.current?.seekToFrame(Math.max(0, totalFrames - 1))
     },
-    [pxPerSecond, totalFrames, playerRef]
+    [spine, pxPerSecond, totalFrames, playerRef]
   )
 
   /** Click or drag anywhere on the ruler to scrub. */
@@ -117,14 +203,19 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
     return out
   }, [totalSeconds, tickStep])
 
-  if (clips.length === 0) return null
+  // Nothing to draw only when there is no sequence at all. A project whose
+  // slots are still generating has a spine made entirely of ghosts, and that is
+  // exactly when seeing the shape of the video matters most.
+  if (spine.length === 0) return null
 
   return (
     <div className="rounded-xl border border-border bg-card">
       <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
         <span className="font-mono text-xs tabular-nums text-muted-foreground">
           {formatTimecode(playhead)} <span className="text-muted-foreground/50">/</span>{" "}
-          {formatTimecode(totalFrames)}
+          {/* The estimate, including ghosts. Showing only what has rendered
+              would make the runtime climb as jobs land. */}
+          {formatTimecode(Math.round(totalSeconds * FPS))}
         </span>
 
         <div className="flex items-center gap-1">
@@ -183,35 +274,56 @@ export function TimelineTrack({ playerRef, onRegen }: TimelineTrackProps) {
             ))}
           </div>
 
-          {/* Clips */}
+          {/* The spine. Magnetic: blocks sit flush and a gap is unrepresentable,
+              because a hole in a listing video is always a bug. */}
           <div className="flex items-center gap-0.5 p-2">
-            {clips.map((clip, i) => (
-              <TimelineClipBlock
-                key={clip.id}
-                clip={clip}
-                index={i}
-                isActive={Boolean(clip.slotId) && clip.slotId === selectedSlotId}
-                pxPerSecond={pxPerSecond}
-                onSelect={() => {
-                  select(clip.slotId ?? null)
-                  const startFrame = clips
-                    .slice(0, i)
-                    .reduce((acc, c) => acc + (c.outFrame - c.inFrame), 0)
-                  playerRef.current?.seekToFrame(startFrame)
-                }}
-                onTrim={(inF, outF) => setTrim(clip.id, inF, outF)}
-                onReorder={handleReorder}
-                // The slot, not the take — regenerating asks for another result
-                // for the same clip, not a copy of an existing one.
-                onRegen={onRegen && clip.slotId ? () => onRegen(clip.slotId!) : undefined}
-              />
-            ))}
+            {spine.map((item) =>
+              item.clip ? (
+                <TimelineClipBlock
+                  key={item.key}
+                  clip={item.clip}
+                  index={item.index}
+                  isActive={
+                    Boolean(item.clip.slotId) && item.clip.slotId === selectedSlotId
+                  }
+                  pxPerSecond={pxPerSecond}
+                  onSelect={() => {
+                    select(item.clip!.slotId ?? null)
+                    // Seek to where this block starts in composition time,
+                    // which skips ghosts — they contribute no frames.
+                    const startFrame = clips
+                      .slice(0, item.index)
+                      .reduce((acc, c) => acc + (c.outFrame - c.inFrame), 0)
+                    playerRef.current?.seekToFrame(startFrame)
+                  }}
+                  onTrim={(inF, outF) => setTrim(item.clip!.id, inF, outF)}
+                  onReorder={handleReorder}
+                  // The slot, not the take — regenerating asks for another result
+                  // for the same clip, not a copy of an existing one.
+                  onRegen={
+                    onRegen && item.clip.slotId
+                      ? () => onRegen(item.clip!.slotId!)
+                      : undefined
+                  }
+                />
+              ) : (
+                <GhostBlock
+                  key={item.key}
+                  name={item.slot!.name}
+                  state={item.slot!.state}
+                  seconds={item.seconds}
+                  pxPerSecond={pxPerSecond}
+                  selected={item.slot!.id === selectedSlotId}
+                  onSelect={() => select(item.slot!.id)}
+                />
+              )
+            )}
           </div>
 
           {/* Playhead */}
           <div
             className="pointer-events-none absolute inset-y-0 z-20 w-px bg-primary"
-            style={{ left: (playhead / FPS) * pxPerSecond }}
+            style={{ left: playheadX }}
           >
             <div className="absolute -left-[5px] top-0 size-0 border-x-[5px] border-t-[6px] border-x-transparent border-t-primary" />
           </div>
@@ -242,4 +354,69 @@ function formatTick(t: number) {
   const m = Math.floor(t / 60)
   const s = Math.round(t % 60)
   return `${m}:${String(s).padStart(2, "0")}`
+}
+
+const GHOST_LABEL: Record<SlotState, string> = {
+  draft: "Not generated",
+  queued: "Queued",
+  running: "Generating",
+  ready: "Ready",
+  failed: "Failed",
+}
+
+/**
+ * A slot with no take yet, holding its place on the spine.
+ *
+ * Dashed and unfilled so it never reads as footage, sized by the length the
+ * slot is set to. Selectable, because it is still the shot the agent wants to
+ * work on — but not trimmable, since there is nothing to trim against. Offering
+ * a handle here would promise media that does not exist.
+ */
+function GhostBlock({
+  name,
+  state,
+  seconds,
+  pxPerSecond,
+  selected,
+  onSelect,
+}: {
+  name: string
+  state: SlotState
+  seconds: number
+  pxPerSecond: number
+  selected: boolean
+  onSelect: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      aria-label={`${name}, ${GHOST_LABEL[state]}`}
+      style={{ width: Math.max(seconds * pxPerSecond, 28) }}
+      className={cn(
+        "group relative h-20 shrink-0 overflow-hidden rounded-md border border-dashed text-left transition-colors",
+        state === "failed"
+          ? "border-destructive/60 bg-destructive/5"
+          : selected
+            ? "border-primary bg-primary/5"
+            : "border-border bg-muted/40 hover:border-foreground/30",
+        state === "running" && "animate-pulse"
+      )}
+    >
+      <span className="flex h-full flex-col justify-between p-1.5">
+        <span className="truncate text-[11px] leading-tight text-muted-foreground">
+          {name}
+        </span>
+        <span
+          className={cn(
+            "truncate font-mono text-[9.5px] leading-tight tabular-nums",
+            state === "failed" ? "text-destructive" : "text-muted-foreground/70"
+          )}
+        >
+          {GHOST_LABEL[state]}
+        </span>
+      </span>
+    </button>
+  )
 }
